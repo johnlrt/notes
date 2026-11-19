@@ -99,6 +99,7 @@ fun HandwritingCanvas(
     isInfiniteCanvas: Boolean = false,
     holdToShapeEnabled: Boolean = true,
     selectedStickerId: String? = null,
+    appSettings: com.johnlrt.freenotes.data.AppSettings = com.johnlrt.freenotes.data.AppSettings(),
     onCommitStroke: (Int, List<StrokePoint>, ToolType?) -> Unit,
     onEraseAt: (Int, Float, Float, Boolean) -> Unit,
     onSelectLasso: (List<StrokePoint>) -> Unit,
@@ -111,6 +112,7 @@ fun HandwritingCanvas(
     onTransformSticker: (String, Float, Float, Float?, Float?, Float?, Boolean) -> Unit = { _, _, _, _, _, _, _ -> },
     onTwoFingerUndo: () -> Unit = {},
     onThreeFingerRedo: () -> Unit = {},
+    onToggleStylusEraser: () -> Unit = {},
     onRequestTextEdit: (Float, Float, String?, String) -> Unit,
     onRequestHyperlinkCreate: (Float, Float) -> Unit
 ) {
@@ -320,23 +322,60 @@ fun HandwritingCanvas(
                 }
 
                 if ((isPanZooming || multiMaxPointers >= 2) && event.actionMasked == MotionEvent.ACTION_UP) {
-                    val dt = event.eventTime - multiDownTimeMs
-                    val moved = hypot((event.x - multiStartMidX).toDouble(), (event.y - multiStartMidY).toDouble()).toFloat()
-                    if (multiMaxPointers == 2 && dt in 1L..250L && moved < 32f) {
-                        onTwoFingerUndo()
-                    } else if (multiMaxPointers >= 3 && dt in 1L..290L && moved < 38f) {
-                        onThreeFingerRedo()
+                    if (appSettings.multiFingerUndoRedoEnabled) {
+                        val dt = event.eventTime - multiDownTimeMs
+                        val moved = hypot((event.x - multiStartMidX).toDouble(), (event.y - multiStartMidY).toDouble()).toFloat()
+                        if (multiMaxPointers == 2 && dt in 1L..250L && moved < 32f) {
+                            onTwoFingerUndo()
+                        } else if (multiMaxPointers >= 3 && dt in 1L..290L && moved < 38f) {
+                            onThreeFingerRedo()
+                        }
                     }
                     multiMaxPointers = 0
                     isPanZooming = false
                     return@pointerInteropFilter true
                 }
 
-                val stylusButtonEraser =
-                    primaryToolType == MotionEvent.TOOL_TYPE_ERASER ||
-                        (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
+                val isPrimaryBtn = (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
+                val isSecondaryBtn = (event.buttonState and MotionEvent.BUTTON_STYLUS_SECONDARY) != 0
 
-                val effectiveTool = if (stylusButtonEraser) ToolType.ERASER else toolConfig.activeTool
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    if (isPrimaryBtn) {
+                        when (appSettings.stylusPrimaryButtonAction) {
+                            com.johnlrt.freenotes.data.StylusButtonAction.UNDO -> {
+                                onTwoFingerUndo()
+                                return@pointerInteropFilter true
+                            }
+                            com.johnlrt.freenotes.data.StylusButtonAction.TOGGLE_ERASER -> {
+                                onToggleStylusEraser()
+                                return@pointerInteropFilter true
+                            }
+                            else -> Unit
+                        }
+                    }
+                    if (isSecondaryBtn) {
+                        when (appSettings.stylusSecondaryButtonAction) {
+                            com.johnlrt.freenotes.data.StylusButtonAction.UNDO -> {
+                                onTwoFingerUndo()
+                                return@pointerInteropFilter true
+                            }
+                            com.johnlrt.freenotes.data.StylusButtonAction.TOGGLE_ERASER -> {
+                                onToggleStylusEraser()
+                                return@pointerInteropFilter true
+                            }
+                            else -> Unit
+                        }
+                    }
+                }
+
+                val effectiveTool = when {
+                    primaryToolType == MotionEvent.TOOL_TYPE_ERASER -> ToolType.ERASER
+                    isPrimaryBtn && appSettings.stylusPrimaryButtonAction == com.johnlrt.freenotes.data.StylusButtonAction.HOLD_ERASER -> ToolType.ERASER
+                    isPrimaryBtn && appSettings.stylusPrimaryButtonAction == com.johnlrt.freenotes.data.StylusButtonAction.HOLD_LASSO -> ToolType.LASSO
+                    isSecondaryBtn && appSettings.stylusSecondaryButtonAction == com.johnlrt.freenotes.data.StylusButtonAction.HOLD_ERASER -> ToolType.ERASER
+                    isSecondaryBtn && appSettings.stylusSecondaryButtonAction == com.johnlrt.freenotes.data.StylusButtonAction.HOLD_LASSO -> ToolType.LASSO
+                    else -> toolConfig.activeTool
+                }
                 val (wx, wy) = screenToWorld(event.x, event.y)
                 val (targetIdx, localY) = resolvePageAtWorldY(wy)
                 val targetPage = pages.getOrNull(targetIdx) ?: activePage
@@ -660,7 +699,7 @@ fun HandwritingCanvas(
                                     holdAnchorX = fx
                                     holdAnchorY = fy
                                     holdLastMoveMs = event.eventTime
-                                } else if (livePoints.size >= 8 && (event.eventTime - holdLastMoveMs) >= 420L) {
+                                } else if (livePoints.size >= 8 && (event.eventTime - holdLastMoveMs) >= appSettings.holdToShapeDelayMs) {
                                     val span = hypot(
                                         (livePoints.last().x - livePoints.first().x).toDouble(),
                                         (livePoints.last().y - livePoints.first().y).toDouble()

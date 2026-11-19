@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.ViewList
@@ -101,7 +102,8 @@ private val CoverPresets = listOf(
 fun LibraryScreen(
     state: AppUiState,
     viewModel: MainViewModel,
-    onRequestImportPdf: () -> Unit
+    onRequestImportPdf: () -> Unit,
+    onOpenSettings: () -> Unit = {}
 ) {
     var showNewNotebookDialog by remember { mutableStateOf(false) }
     var showNewFolderDialog by remember { mutableStateOf(false) }
@@ -255,6 +257,14 @@ fun LibraryScreen(
                     count = state.notebooks.count { it.isTrashed },
                     selected = state.librarySection == LibrarySection.TRASH,
                     onClick = { viewModel.selectLibrarySection(LibrarySection.TRASH) }
+                )
+
+                Spacer(Modifier.height(4.dp))
+                SidebarItem(
+                    icon = Icons.Default.Settings,
+                    label = "Settings & Stylus",
+                    selected = false,
+                    onClick = onOpenSettings
                 )
             }
         }

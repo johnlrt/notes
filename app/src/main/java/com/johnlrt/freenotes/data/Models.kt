@@ -275,11 +275,91 @@ data class FavoriteToolPreset(
 )
 
 @Serializable
+enum class AppThemeMode(val label: String) {
+    SYSTEM("System"),
+    LIGHT("Light"),
+    DARK("Dark")
+}
+
+@Serializable
+enum class AppAccentPalette(
+    val label: String,
+    val primaryLightArgb: Long,
+    val containerLightArgb: Long,
+    val primaryDarkArgb: Long,
+    val containerDarkArgb: Long
+) {
+    COBALT("Freenotes Blue", 0xFF2563EB, 0xFFDBEAFE, 0xFF60A5FA, 0xFF1E3A8A),
+    INDIGO("Indigo Studio", 0xFF4F46E5, 0xFFE0E7FF, 0xFF818CF8, 0xFF312E81),
+    EMERALD("Botanical Mint", 0xFF059669, 0xFFD1FAE5, 0xFF34D399, 0xFF065F46),
+    ROSE("Sakura Rose", 0xFFE11D48, 0xFFFFE4E6, 0xFFFB7185, 0xFF881337),
+    AMBER("Warm Amber", 0xFFD97706, 0xFFFEF3C7, 0xFFFBBF24, 0xFF78350F),
+    VIOLET("Royal Violet", 0xFF7C3AED, 0xFFEDE9FE, 0xFFA78BFA, 0xFF4C1D95),
+    GRAPHITE("Minimal Graphite", 0xFF334155, 0xFFE2E8F0, 0xFFCBD5E1, 0xFF1E293B)
+}
+
+@Serializable
+enum class ToolbarPosition(val label: String) {
+    TOP("Top"),
+    BOTTOM("Bottom")
+}
+
+@Serializable
+enum class StylusButtonAction(val label: String) {
+    HOLD_ERASER("Hold for Eraser"),
+    TOGGLE_ERASER("Toggle Pen / Eraser"),
+    HOLD_LASSO("Hold for Lasso"),
+    UNDO("Undo Last Stroke"),
+    NONE("Disabled")
+}
+
+@Serializable
+enum class PressureCurve(val label: String, val gamma: Float) {
+    SOFT("Soft (Light Touch)", 0.65f),
+    NORMAL("Balanced (Default)", 1.0f),
+    FIRM("Firm (Heavy Press)", 1.45f)
+}
+
+@Serializable
+enum class WritingPosture(val label: String) {
+    RIGHT_NORMAL("Right Hand — Normal"),
+    RIGHT_HOOK("Right Hand — Hook"),
+    RIGHT_LOW("Right Hand — Low"),
+    LEFT_NORMAL("Left Hand — Normal"),
+    LEFT_HOOK("Left Hand — Hook"),
+    LEFT_LOW("Left Hand — Low")
+}
+
+@Serializable
+data class AppSettings(
+    // Appearance & Style
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val accentPalette: AppAccentPalette = AppAccentPalette.COBALT,
+    val toolbarPosition: ToolbarPosition = ToolbarPosition.TOP,
+    val leftHandedUi: Boolean = false,
+    // Stylus & Pencil Support
+    val stylusOnlyMode: Boolean = false,
+    val stylusPrimaryButtonAction: StylusButtonAction = StylusButtonAction.HOLD_ERASER,
+    val stylusSecondaryButtonAction: StylusButtonAction = StylusButtonAction.UNDO,
+    val pressureCurve: PressureCurve = PressureCurve.NORMAL,
+    val showStylusHoverCursor: Boolean = true,
+    val writingPosture: WritingPosture = WritingPosture.RIGHT_NORMAL,
+    // Gestures, Canvas & 120Hz Performance
+    val highRefreshRate120Hz: Boolean = true,
+    val lowLatencyFrontBuffer: Boolean = true,
+    val holdToShapeEnabled: Boolean = true,
+    val holdToShapeDelayMs: Long = 420L,
+    val scribbleToEraseEnabled: Boolean = true,
+    val multiFingerUndoRedoEnabled: Boolean = true
+)
+
+@Serializable
 data class WorkspaceIndex(
     val folders: List<Folder> = emptyList(),
     val favoriteTools: List<FavoriteToolPreset> = defaultFavoriteTools(),
     val customColors: List<Long> = listOf(0xFF1A1C1E, 0xFF2563EB, 0xFFDC2626, 0xFF0D9488, 0xFFF59E0B, 0xFF7C3AED),
-    val customStickers: List<String> = listOf("IMPORTANT", "EXAM", "REVIEW", "FORMULA")
+    val customStickers: List<String> = listOf("IMPORTANT", "EXAM", "REVIEW", "FORMULA"),
+    val settings: AppSettings = AppSettings()
 )
 
 fun defaultFavoriteTools(): List<FavoriteToolPreset> = listOf(

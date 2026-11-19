@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShapeLine
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
@@ -133,6 +134,7 @@ fun EditorScreen(
     onRequestMicPermission: () -> Unit,
     onRequestPickImage: () -> Unit,
     onRequestPickVideo: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     onExportedFile: (File, String) -> Unit
 ) {
     val notebook = state.activeNotebook ?: return
@@ -185,6 +187,7 @@ fun EditorScreen(
                 onOpenPipVideo = onRequestPickVideo,
                 onOpenPageSorter = { showPageSorter = true },
                 onToggleAudioBar = { showAudioBar = !showAudioBar },
+                onOpenSettings = onOpenSettings,
                 onExportPdf = { viewModel.exportActiveNotebookToPdf(onExportedFile) },
                 onExportPng = { viewModel.exportCurrentPageToPng(onExportedFile) },
                 onExportBackup = { viewModel.exportActiveNotebookBackup(onExportedFile) }
@@ -192,51 +195,57 @@ fun EditorScreen(
 
             HorizontalDivider(thickness = 0.75.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
 
-            // 2. Primary Freenotes Writing Toolbar
-            PrimaryToolBar(
-                cfg = cfg,
-                showRuler = editor.showRuler,
-                showZoomWindow = editor.showZoomWindow,
-                allTapesRevealed = editor.allTapesRevealed,
-                showToolSettings = showToolSettings,
-                onSelectTool = { tool ->
-                    when (tool) {
-                        ToolType.IMAGE -> {
-                            viewModel.selectTool(ToolType.IMAGE)
-                            onRequestPickImage()
+            val renderToolbar: @Composable () -> Unit = {
+                PrimaryToolBar(
+                    cfg = cfg,
+                    showRuler = editor.showRuler,
+                    showZoomWindow = editor.showZoomWindow,
+                    allTapesRevealed = editor.allTapesRevealed,
+                    showToolSettings = showToolSettings,
+                    onSelectTool = { tool ->
+                        when (tool) {
+                            ToolType.IMAGE -> {
+                                viewModel.selectTool(ToolType.IMAGE)
+                                onRequestPickImage()
+                            }
+                            ToolType.STICKER -> showStickersDialog = true
+                            else -> {
+                                if (cfg.activeTool == tool) showToolSettings = !showToolSettings
+                                else viewModel.selectTool(tool)
+                            }
                         }
-                        ToolType.STICKER -> showStickersDialog = true
-                        else -> {
-                            if (cfg.activeTool == tool) showToolSettings = !showToolSettings
-                            else viewModel.selectTool(tool)
+                    },
+                    onToggleRuler = viewModel::toggleRuler,
+                    onToggleZoomWindow = viewModel::toggleZoomWindow,
+                    onToggleToolSettings = { showToolSettings = !showToolSettings },
+                    onOpenColorWheel = { showColorWheel = true },
+                    onPickColor = { argb ->
+                        viewModel.updateToolConfig {
+                            when (it.activeTool) {
+                                ToolType.HIGHLIGHTER -> it.copy(highlighterColorArgb = argb)
+                                ToolType.TAPE -> it.copy(tapeColorArgb = argb)
+                                else -> it.copy(penColorArgb = argb)
+                            }
                         }
-                    }
-                },
-                onToggleRuler = viewModel::toggleRuler,
-                onToggleZoomWindow = viewModel::toggleZoomWindow,
-                onToggleToolSettings = { showToolSettings = !showToolSettings },
-                onOpenColorWheel = { showColorWheel = true },
-                onPickColor = { argb ->
-                    viewModel.updateToolConfig {
-                        when (it.activeTool) {
-                            ToolType.HIGHLIGHTER -> it.copy(highlighterColorArgb = argb)
-                            ToolType.TAPE -> it.copy(tapeColorArgb = argb)
-                            else -> it.copy(penColorArgb = argb)
+                    },
+                    onPickWidth = { w ->
+                        viewModel.updateToolConfig {
+                            when (it.activeTool) {
+                                ToolType.HIGHLIGHTER -> it.copy(highlighterWidth = w)
+                                ToolType.ERASER -> it.copy(eraserRadius = w)
+                                ToolType.TAPE -> it.copy(tapeThickness = w)
+                                else -> it.copy(penWidth = w)
+                            }
                         }
-                    }
-                },
-                onPickWidth = { w ->
-                    viewModel.updateToolConfig {
-                        when (it.activeTool) {
-                            ToolType.HIGHLIGHTER -> it.copy(highlighterWidth = w)
-                            ToolType.ERASER -> it.copy(eraserRadius = w)
-                            ToolType.TAPE -> it.copy(tapeThickness = w)
-                            else -> it.copy(penWidth = w)
-                        }
-                    }
-                },
-                onToggleAllTapes = viewModel::toggleAllTapesOnPage
-            )
+                    },
+                    onToggleAllTapes = viewModel::toggleAllTapesOnPage
+                )
+            }
+
+            // 2. Primary Freenotes Writing Toolbar (Top Dock)
+            if (state.settings.toolbarPosition == com.johnlrt.freenotes.data.ToolbarPosition.TOP) {
+                renderToolbar()
+            }
 
             if (showAudioBar) {
                 AudioRecorderStrip(
@@ -288,6 +297,7 @@ fun EditorScreen(
                                 isInfiniteCanvas = notebook.isInfiniteCanvas,
                                 holdToShapeEnabled = editor.holdToShapeEnabled,
                                 selectedStickerId = editor.selectedStickerId,
+                                appSettings = state.settings,
                                 modifier = Modifier.weight(1f).fillMaxHeight(),
                                 onCommitStroke = viewModel::commitStrokeOnPage,
                                 onEraseAt = viewModel::eraseAtOnPage,
@@ -301,6 +311,9 @@ fun EditorScreen(
                                 onTransformSticker = viewModel::transformSticker,
                                 onTwoFingerUndo = viewModel::undo,
                                 onThreeFingerRedo = viewModel::redo,
+                                onToggleStylusEraser = {
+                                    viewModel.selectTool(if (cfg.activeTool == ToolType.ERASER) ToolType.FOUNTAIN_PEN else ToolType.ERASER)
+                                },
                                 onRequestTextEdit = { x, y, id, text -> pendingTextEdit = TextEditRequest(x, y, id, text) },
                                 onRequestHyperlinkCreate = { x, y -> pendingHyperlinkPos = x to y }
                             )
@@ -348,6 +361,7 @@ fun EditorScreen(
                             isInfiniteCanvas = notebook.isInfiniteCanvas,
                             holdToShapeEnabled = editor.holdToShapeEnabled,
                             selectedStickerId = editor.selectedStickerId,
+                            appSettings = state.settings,
                             modifier = Modifier.fillMaxSize(),
                             onCommitStroke = viewModel::commitStrokeOnPage,
                             onEraseAt = viewModel::eraseAtOnPage,
@@ -361,6 +375,9 @@ fun EditorScreen(
                             onTransformSticker = viewModel::transformSticker,
                             onTwoFingerUndo = viewModel::undo,
                             onThreeFingerRedo = viewModel::redo,
+                            onToggleStylusEraser = {
+                                viewModel.selectTool(if (cfg.activeTool == ToolType.ERASER) ToolType.FOUNTAIN_PEN else ToolType.ERASER)
+                            },
                             onRequestTextEdit = { x, y, id, text -> pendingTextEdit = TextEditRequest(x, y, id, text) },
                             onRequestHyperlinkCreate = { x, y -> pendingHyperlinkPos = x to y }
                         )
@@ -550,6 +567,11 @@ fun EditorScreen(
                 )
             }
 
+            if (state.settings.toolbarPosition == com.johnlrt.freenotes.data.ToolbarPosition.BOTTOM) {
+                HorizontalDivider(thickness = 0.75.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+                renderToolbar()
+            }
+
             // 4. Bottom Page Navigation Strip
             BottomPageStrip(
                 currentIndex = editor.currentPageIndex,
@@ -716,6 +738,7 @@ private fun TopEditorBar(
     onOpenPipVideo: () -> Unit,
     onOpenPageSorter: () -> Unit,
     onToggleAudioBar: () -> Unit,
+    onOpenSettings: () -> Unit,
     onExportPdf: () -> Unit,
     onExportPng: () -> Unit,
     onExportBackup: () -> Unit
@@ -821,12 +844,20 @@ private fun TopEditorBar(
             IconButton(onClick = onOpenPageSorter) {
                 Icon(Icons.Default.GridView, contentDescription = "Pages")
             }
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Default.Settings, contentDescription = "Settings & Stylus")
+            }
 
             Box {
                 IconButton(onClick = { showMoreMenu = true }) {
                     Icon(Icons.Default.MoreVert, contentDescription = "More Options")
                 }
                 DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Settings, Stylus & Style...") },
+                        onClick = { showMoreMenu = false; onOpenSettings() }
+                    )
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text(if (editor.holdToShapeEnabled) "✓ Hold-to-Shape Auto-Snap" else "Hold-to-Shape Auto-Snap") },
                         onClick = { viewModel.toggleHoldToShape(); showMoreMenu = false }

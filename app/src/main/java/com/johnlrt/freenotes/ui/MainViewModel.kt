@@ -133,6 +133,7 @@ data class AppUiState(
     val folders: List<Folder> = emptyList(),
     val favoriteTools: List<FavoriteToolPreset> = emptyList(),
     val customColors: List<Long> = emptyList(),
+    val settings: com.johnlrt.freenotes.data.AppSettings = com.johnlrt.freenotes.data.AppSettings(),
     val librarySection: LibrarySection = LibrarySection.ALL_NOTES,
     val selectedFolderId: String? = null,
     val searchQuery: String = "",
@@ -164,15 +165,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val workspace = repo.loadWorkspace()
             val notebooks = repo.loadAllNotebooks()
+            val s = workspace.settings
             _uiState.update {
                 it.copy(
                     notebooks = notebooks,
                     folders = workspace.folders,
                     favoriteTools = workspace.favoriteTools,
-                    customColors = workspace.customColors
+                    customColors = workspace.customColors,
+                    settings = s,
+                    editor = it.editor.copy(
+                        stylusOnlyMode = s.stylusOnlyMode,
+                        holdToShapeEnabled = s.holdToShapeEnabled,
+                        scribbleToEraseEnabled = s.scribbleToEraseEnabled
+                    )
                 )
             }
         }
+    }
+
+    fun updateSettings(transform: (com.johnlrt.freenotes.data.AppSettings) -> com.johnlrt.freenotes.data.AppSettings) {
+        _uiState.update { state ->
+            val updated = transform(state.settings)
+            state.copy(
+                settings = updated,
+                editor = state.editor.copy(
+                    stylusOnlyMode = updated.stylusOnlyMode,
+                    holdToShapeEnabled = updated.holdToShapeEnabled,
+                    scribbleToEraseEnabled = updated.scribbleToEraseEnabled
+                )
+            )
+        }
+        persistWorkspace()
     }
 
     // region Library Actions
@@ -1298,7 +1321,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 WorkspaceIndex(
                     folders = state.folders,
                     favoriteTools = state.favoriteTools,
-                    customColors = state.customColors
+                    customColors = state.customColors,
+                    settings = state.settings
                 )
             )
         }

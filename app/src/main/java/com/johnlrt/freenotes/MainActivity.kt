@@ -67,8 +67,18 @@ class MainActivity : ComponentActivity() {
         enableHighRefreshRate()
 
         setContent {
-            FreeNotesTheme {
-                val state by viewModel.uiState.collectAsState()
+            val state by viewModel.uiState.collectAsState()
+            var showSettings by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+            val maxDisplayHz = androidx.compose.runtime.remember { queryMaxRefreshRateHz() }
+
+            androidx.compose.runtime.LaunchedEffect(state.settings.highRefreshRate120Hz) {
+                enableHighRefreshRate(state.settings.highRefreshRate120Hz)
+            }
+
+            FreeNotesTheme(
+                themeMode = state.settings.themeMode,
+                accentPalette = state.settings.accentPalette
+            ) {
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
@@ -87,6 +97,7 @@ class MainActivity : ComponentActivity() {
                             onRequestPickVideo = {
                                 videoPickerLauncher.launch("video/*")
                             },
+                            onOpenSettings = { showSettings = true },
                             onExportedFile = ::shareFile
                         )
                     } else {
@@ -95,7 +106,17 @@ class MainActivity : ComponentActivity() {
                             viewModel = viewModel,
                             onRequestImportPdf = {
                                 pdfPickerLauncher.launch(arrayOf("application/pdf", "application/json"))
-                            }
+                            },
+                            onOpenSettings = { showSettings = true }
+                        )
+                    }
+
+                    if (showSettings) {
+                        com.johnlrt.freenotes.ui.SettingsDialog(
+                            settings = state.settings,
+                            displayRefreshHz = maxDisplayHz,
+                            onUpdateSettings = viewModel::updateSettings,
+                            onDismiss = { showSettings = false }
                         )
                     }
                 }
@@ -105,7 +126,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        enableHighRefreshRate()
+        enableHighRefreshRate(viewModel.uiState.value.settings.highRefreshRate120Hz)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun queryMaxRefreshRateHz(): Int {
+        val currentDisplay: Display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display ?: windowManager.defaultDisplay
+        } else {
+            windowManager.defaultDisplay
+        } ?: return 60
+        return currentDisplay.supportedModes.maxOfOrNull { it.refreshRate }?.toInt() ?: 60
     }
 
     /**
@@ -113,7 +144,7 @@ class MainActivity : ComponentActivity() {
      * at native resolution and enables Android 14+ touch frame-rate boost for zero-lag inking.
      */
     @Suppress("DEPRECATION")
-    private fun enableHighRefreshRate() {
+    private fun enableHighRefreshRate(enabled: Boolean = true) {
         val currentDisplay: Display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             display ?: windowManager.defaultDisplay
         } else {
@@ -121,23 +152,33 @@ class MainActivity : ComponentActivity() {
         } ?: return
 
         val currentMode = currentDisplay.mode
-        val bestMode = currentDisplay.supportedModes
-            .filter {
-                it.physicalWidth == currentMode.physicalWidth &&
-                    it.physicalHeight == currentMode.physicalHeight
-            }
-            .maxByOrNull { it.refreshRate }
-            ?: currentMode
+        val targetMode = if (enabled) {
+            currentDisplay.supportedModes
+                .filter {
+                    it.physicalWidth == currentMode.physicalWidth &&
+                        it.physicalHeight == currentMode.physicalHeight
+                }
+                .maxByOrNull { it.refreshRate }
+                ?: currentMode
+        } else {
+            currentDisplay.supportedModes
+                .filter {
+                    it.physicalWidth == currentMode.physicalWidth &&
+                        it.physicalHeight == currentMode.physicalHeight
+                }
+                .minByOrNull { it.refreshRate }
+                ?: currentMode
+        }
 
         val params = window.attributes
-        if (params.preferredDisplayModeId != bestMode.modeId || params.preferredRefreshRate != bestMode.refreshRate) {
-            params.preferredDisplayModeId = bestMode.modeId
-            params.preferredRefreshRate = bestMode.refreshRate
+        if (params.preferredDisplayModeId != targetMode.modeId || params.preferredRefreshRate != targetMode.refreshRate) {
+            params.preferredDisplayModeId = targetMode.modeId
+            params.preferredRefreshRate = targetMode.refreshRate
             window.attributes = params
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            window.frameRateBoostOnTouchEnabled = true
+            window.frameRateBoostOnTouchEnabled = enabled
         }
     }
 
