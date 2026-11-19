@@ -31,13 +31,33 @@ class MainActivity : ComponentActivity() {
     ) { uri ->
         if (uri != null) {
             val name = queryDisplayName(uri) ?: "Imported PDF"
-            viewModel.importPdf(uri, name)
+            if (name.endsWith(".json", ignoreCase = true)) {
+                viewModel.importBackup(uri)
+            } else {
+                viewModel.importPdf(uri, name)
+            }
+        }
+    }
+
+    private val imagePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.insertImageFromUri(uri)
+        }
+    }
+
+    private val videoPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.openPipVideo(uri)
         }
     }
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* handled smoothly when recording starts */ }
+    ) { /* handled when recording starts */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,14 +78,20 @@ class MainActivity : ComponentActivity() {
                             onRequestMicPermission = {
                                 micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             },
-                            onExportedPdf = ::sharePdfFile
+                            onRequestPickImage = {
+                                imagePickerLauncher.launch("image/*")
+                            },
+                            onRequestPickVideo = {
+                                videoPickerLauncher.launch("video/*")
+                            },
+                            onExportedFile = ::shareFile
                         )
                     } else {
                         LibraryScreen(
                             state = state,
                             viewModel = viewModel,
                             onRequestImportPdf = {
-                                pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                pdfPickerLauncher.launch(arrayOf("application/pdf", "application/json"))
                             }
                         )
                     }
@@ -81,13 +107,13 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    private fun sharePdfFile(file: File) {
+    private fun shareFile(file: File, mimeType: String) {
         val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/pdf"
+            type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        startActivity(Intent.createChooser(intent, "Share Exported PDF"))
+        startActivity(Intent.createChooser(intent, "Share Exported File"))
     }
 }

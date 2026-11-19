@@ -1,5 +1,8 @@
 package com.johnlrt.freenotes.engine
 
+import com.johnlrt.freenotes.data.HyperlinkItem
+import com.johnlrt.freenotes.data.ImageItem
+import com.johnlrt.freenotes.data.StickerItem
 import com.johnlrt.freenotes.data.Stroke
 import com.johnlrt.freenotes.data.StrokePoint
 import com.johnlrt.freenotes.data.TapeItem
@@ -40,5 +43,20 @@ class HitTestEngineTest {
         val tape = TapeItem(startX = 100f, startY = 200f, endX = 400f, endY = 200f, thickness = 40f)
         assertTrue(HitTestEngine.hitTestTape(tape, 250f, 210f))
         assertFalse(HitTestEngine.hitTestTape(tape, 250f, 300f))
+    }
+
+    @Test
+    fun imageStickerAndHyperlinkHitTestsWork() {
+        val img = ImageItem(filePath = "photo.png", x = 50f, y = 60f, width = 200f, height = 150f)
+        assertTrue(HitTestEngine.hitTestImage(img, 100f, 120f))
+        assertFalse(HitTestEngine.hitTestImage(img, 300f, 120f))
+
+        val sticker = StickerItem(label = "⭐", x = 400f, y = 400f, width = 120f, height = 120f)
+        assertTrue(HitTestEngine.hitTestSticker(sticker, 450f, 460f))
+        assertFalse(HitTestEngine.hitTestSticker(sticker, 600f, 460f))
+
+        val link = HyperlinkItem(label = "Page 2", targetPageIndex = 1, x = 80f, y = 200f)
+        assertTrue(HitTestEngine.hitTestHyperlink(link, 120f, 220f))
+        assertFalse(HitTestEngine.hitTestHyperlink(link, 120f, 300f))
     }
 }

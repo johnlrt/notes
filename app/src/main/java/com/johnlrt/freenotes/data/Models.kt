@@ -15,6 +15,8 @@ enum class ToolType {
     SHAPE,
     TEXT,
     IMAGE,
+    STICKER,
+    HYPERLINK,
     LASER
 }
 
@@ -39,6 +41,12 @@ enum class ShapeKind {
     ELLIPSE,
     TRIANGLE,
     ARROW
+}
+
+@Serializable
+enum class ScrollDirection(val label: String) {
+    VERTICAL_CONTINUOUS("Vertical Scroll"),
+    HORIZONTAL_PAGING("Horizontal Pages")
 }
 
 @Serializable
@@ -87,6 +95,9 @@ data class Stroke(
     val highlighterStyle: HighlighterStyle = HighlighterStyle.SOLID,
     val isStraightLine: Boolean = false,
     val isFilledShape: Boolean = false,
+    val fillColorArgb: Long? = null,
+    val fillAlpha: Float = 0.18f,
+    val borderDashed: Boolean = false,
     val points: List<StrokePoint> = emptyList()
 )
 
@@ -109,7 +120,7 @@ data class TextBoxItem(
     val layerId: String = "layer_default",
     val x: Float,
     val y: Float,
-    val width: Float = 320f,
+    val width: Float = 360f,
     val text: String = "",
     val fontSizeSp: Float = 20f,
     val colorArgb: Long = 0xFF1A1C1E,
@@ -126,6 +137,51 @@ data class ImageItem(
     val width: Float = 360f,
     val height: Float = 270f,
     val rotationDeg: Float = 0f
+)
+
+@Serializable
+data class StickerItem(
+    val id: String = UUID.randomUUID().toString(),
+    val layerId: String = "layer_default",
+    val label: String,
+    val emoji: String = "",
+    val x: Float,
+    val y: Float,
+    val width: Float = 150f,
+    val height: Float = 120f,
+    val bgColorArgb: Long = 0xFFFEF3C7,
+    val borderColorArgb: Long = 0xFFF59E0B,
+    val textColorArgb: Long = 0xFF78350F
+)
+
+@Serializable
+data class HyperlinkItem(
+    val id: String = UUID.randomUUID().toString(),
+    val layerId: String = "layer_default",
+    val label: String,
+    val targetPageIndex: Int,
+    val x: Float,
+    val y: Float,
+    val colorArgb: Long = 0xFF2563EB
+)
+
+@Serializable
+data class BookmarkItem(
+    val id: String = UUID.randomUUID().toString(),
+    val pageIndex: Int,
+    val title: String,
+    val createdAtMs: Long = System.currentTimeMillis()
+)
+
+@Serializable
+data class FlashcardItem(
+    val id: String = UUID.randomUUID().toString(),
+    val front: String,
+    val back: String,
+    val repetitions: Int = 0,
+    val intervalDays: Int = 1,
+    val easeFactor: Float = 2.5f,
+    val nextReviewAtMs: Long = System.currentTimeMillis()
 )
 
 @Serializable
@@ -148,7 +204,9 @@ data class NotePage(
     val strokes: List<Stroke> = emptyList(),
     val tapes: List<TapeItem> = emptyList(),
     val textBoxes: List<TextBoxItem> = emptyList(),
-    val images: List<ImageItem> = emptyList()
+    val images: List<ImageItem> = emptyList(),
+    val stickers: List<StickerItem> = emptyList(),
+    val hyperlinks: List<HyperlinkItem> = emptyList()
 )
 
 @Serializable
@@ -165,15 +223,17 @@ data class Notebook(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val folderId: String? = null,
-    val coverColorArgb: Long = 0xFF4F46E5,
-    val coverAccentArgb: Long = 0xFF818CF8,
+    val coverColorArgb: Long = 0xFF2563EB,
+    val coverAccentArgb: Long = 0xFF60A5FA,
     val isFavorite: Boolean = false,
     val isTrashed: Boolean = false,
     val isInfiniteCanvas: Boolean = false,
     val createdAtMs: Long = System.currentTimeMillis(),
     val updatedAtMs: Long = System.currentTimeMillis(),
     val pages: List<NotePage> = listOf(NotePage()),
-    val recordings: List<VoiceRecording> = emptyList()
+    val recordings: List<VoiceRecording> = emptyList(),
+    val bookmarks: List<BookmarkItem> = emptyList(),
+    val flashcards: List<FlashcardItem> = emptyList()
 )
 
 @Serializable
@@ -181,7 +241,7 @@ data class Folder(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val parentId: String? = null,
-    val colorArgb: Long = 0xFF3B82F6,
+    val colorArgb: Long = 0xFF2563EB,
     val createdAtMs: Long = System.currentTimeMillis()
 )
 
@@ -199,7 +259,9 @@ data class FavoriteToolPreset(
 @Serializable
 data class WorkspaceIndex(
     val folders: List<Folder> = emptyList(),
-    val favoriteTools: List<FavoriteToolPreset> = defaultFavoriteTools()
+    val favoriteTools: List<FavoriteToolPreset> = defaultFavoriteTools(),
+    val customColors: List<Long> = listOf(0xFF1A1C1E, 0xFF2563EB, 0xFFDC2626, 0xFF0D9488, 0xFFF59E0B, 0xFF7C3AED),
+    val customStickers: List<String> = listOf("IMPORTANT", "EXAM", "REVIEW", "FORMULA")
 )
 
 fun defaultFavoriteTools(): List<FavoriteToolPreset> = listOf(
@@ -229,7 +291,7 @@ fun defaultFavoriteTools(): List<FavoriteToolPreset> = listOf(
         label = "Yellow HL",
         toolType = ToolType.HIGHLIGHTER,
         colorArgb = 0xFFFACC15,
-        width = 24f,
+        width = 26f,
         opacity = 0.35f
     ),
     FavoriteToolPreset(
@@ -237,7 +299,7 @@ fun defaultFavoriteTools(): List<FavoriteToolPreset> = listOf(
         label = "Mint HL",
         toolType = ToolType.HIGHLIGHTER,
         colorArgb = 0xFF34D399,
-        width = 24f,
+        width = 26f,
         opacity = 0.35f
     ),
     FavoriteToolPreset(
@@ -245,6 +307,6 @@ fun defaultFavoriteTools(): List<FavoriteToolPreset> = listOf(
         label = "Recall Tape",
         toolType = ToolType.TAPE,
         colorArgb = 0xFFF59E0B,
-        width = 36f
+        width = 38f
     )
 )

@@ -55,8 +55,10 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.input.motionprediction)
+    implementation(libs.mlkit.digital.ink)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.play.services)
 
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)

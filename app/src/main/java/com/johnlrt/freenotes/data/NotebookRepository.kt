@@ -146,6 +146,28 @@ class NotebookRepository(private val context: Context) {
                     colorArgb = 0xFFF59E0B,
                     isRevealed = false
                 )
+            ),
+            stickers = listOf(
+                StickerItem(
+                    label = "EXAM KEY",
+                    emoji = "⭐",
+                    x = 76f,
+                    y = 220f,
+                    width = 180f,
+                    height = 72f,
+                    bgColorArgb = 0xFFFEF3C7,
+                    borderColorArgb = 0xFFF59E0B,
+                    textColorArgb = 0xFF92400E
+                )
+            ),
+            hyperlinks = listOf(
+                HyperlinkItem(
+                    label = "→ Jump to Practice Grid (Page 2)",
+                    targetPageIndex = 1,
+                    x = 340f,
+                    y = 630f,
+                    colorArgb = 0xFF2563EB
+                )
             )
         )
         val page2 = NotePage(
@@ -157,10 +179,24 @@ class NotebookRepository(private val context: Context) {
             id = UUID.randomUUID().toString(),
             title = "Quick Start & Active Recall",
             folderId = "folder_study",
-            coverColorArgb = 0xFF4F46E5,
-            coverAccentArgb = 0xFF818CF8,
+            coverColorArgb = 0xFF2563EB,
+            coverAccentArgb = 0xFF60A5FA,
             isFavorite = true,
-            pages = listOf(page1, page2)
+            pages = listOf(page1, page2),
+            bookmarks = listOf(
+                BookmarkItem(pageIndex = 0, title = "Overview & Active Recall"),
+                BookmarkItem(pageIndex = 1, title = "Dotted Scratchpad")
+            ),
+            flashcards = listOf(
+                FlashcardItem(
+                    front = "What filter does Freenotes use for stylus stabilization?",
+                    back = "1€ (One-Euro) low-pass filter (mincutoff = 16, beta = 0.01, freq = 120Hz)"
+                ),
+                FlashcardItem(
+                    front = "How do you trigger the quick eraser on S Pen?",
+                    back = "Hold the S Pen side button (BUTTON_STYLUS_PRIMARY) while touching the canvas."
+                )
+            )
         )
     }
 }
