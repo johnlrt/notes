@@ -33,43 +33,47 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoFixHigh
-import androidx.compose.material.icons.filled.BorderColor
-import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Draw
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Flare
 import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.ShapeLine
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VerticalSplit
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -87,6 +91,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -106,6 +111,7 @@ import com.johnlrt.freenotes.data.NotePage
 import com.johnlrt.freenotes.data.Notebook
 import com.johnlrt.freenotes.data.PaperColor
 import com.johnlrt.freenotes.data.PaperTemplate
+import com.johnlrt.freenotes.data.ScrollDirection
 import com.johnlrt.freenotes.data.ShapeKind
 import com.johnlrt.freenotes.data.ToolType
 import com.johnlrt.freenotes.ui.AppUiState
@@ -125,7 +131,9 @@ fun EditorScreen(
     state: AppUiState,
     viewModel: MainViewModel,
     onRequestMicPermission: () -> Unit,
-    onExportedPdf: (File) -> Unit
+    onRequestPickImage: () -> Unit,
+    onRequestPickVideo: () -> Unit,
+    onExportedFile: (File, String) -> Unit
 ) {
     val notebook = state.activeNotebook ?: return
     val page = state.activePage ?: return
@@ -133,17 +141,21 @@ fun EditorScreen(
     val cfg = editor.toolConfig
 
     var showToolSettings by remember { mutableStateOf(false) }
+    var showColorWheel by remember { mutableStateOf(false) }
     var showLayersPanel by remember { mutableStateOf(false) }
+    var showOutlinePanel by remember { mutableStateOf(false) }
     var showPageSorter by remember { mutableStateOf(false) }
     var showTemplateDialog by remember { mutableStateOf(false) }
+    var showStickersDialog by remember { mutableStateOf(false) }
+    var showFlashcardsDialog by remember { mutableStateOf(false) }
     var showAudioBar by remember { mutableStateOf(false) }
+    var showImageCropDialog by remember { mutableStateOf(false) }
 
-    // Text box editor modal state
     var pendingTextEdit by remember { mutableStateOf<TextEditRequest?>(null) }
+    var pendingHyperlinkPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
 
-    // Draggable Floating Favorites Toolbar offset
-    var stickyOffsetX by remember { mutableFloatStateOf(20f) }
-    var stickyOffsetY by remember { mutableFloatStateOf(160f) }
+    var stickyOffsetX by remember { mutableFloatStateOf(16f) }
+    var stickyOffsetY by remember { mutableFloatStateOf(130f) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(editor.statusMessage) {
@@ -154,6 +166,10 @@ fun EditorScreen(
         }
     }
 
+    val selectedImage = remember(page.images, editor.selectedImageId) {
+        page.images.find { it.id == editor.selectedImageId }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             // 1. Top Notebook Tab & Action Bar
@@ -162,25 +178,44 @@ fun EditorScreen(
                 notebook = notebook,
                 viewModel = viewModel,
                 showLayersPanel = showLayersPanel,
-                onToggleLayers = { showLayersPanel = !showLayersPanel },
+                showOutlinePanel = showOutlinePanel,
+                onToggleLayers = { showLayersPanel = !showLayersPanel; if (showLayersPanel) showOutlinePanel = false },
+                onToggleOutline = { showOutlinePanel = !showOutlinePanel; if (showOutlinePanel) showLayersPanel = false },
+                onOpenFlashcards = { showFlashcardsDialog = true },
+                onOpenPipVideo = onRequestPickVideo,
                 onOpenPageSorter = { showPageSorter = true },
                 onToggleAudioBar = { showAudioBar = !showAudioBar },
-                onExportPdf = { viewModel.exportActiveNotebookToPdf(onExportedPdf) }
+                onExportPdf = { viewModel.exportActiveNotebookToPdf(onExportedFile) },
+                onExportPng = { viewModel.exportCurrentPageToPng(onExportedFile) },
+                onExportBackup = { viewModel.exportActiveNotebookBackup(onExportedFile) }
             )
 
-            // 2. Primary Drawing Toolbar
+            HorizontalDivider(thickness = 0.75.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+
+            // 2. Primary Freenotes Writing Toolbar
             PrimaryToolBar(
                 cfg = cfg,
+                showRuler = editor.showRuler,
+                showZoomWindow = editor.showZoomWindow,
                 allTapesRevealed = editor.allTapesRevealed,
                 showToolSettings = showToolSettings,
                 onSelectTool = { tool ->
-                    if (cfg.activeTool == tool) {
-                        showToolSettings = !showToolSettings
-                    } else {
-                        viewModel.selectTool(tool)
+                    when (tool) {
+                        ToolType.IMAGE -> {
+                            viewModel.selectTool(ToolType.IMAGE)
+                            onRequestPickImage()
+                        }
+                        ToolType.STICKER -> showStickersDialog = true
+                        else -> {
+                            if (cfg.activeTool == tool) showToolSettings = !showToolSettings
+                            else viewModel.selectTool(tool)
+                        }
                     }
                 },
+                onToggleRuler = viewModel::toggleRuler,
+                onToggleZoomWindow = viewModel::toggleZoomWindow,
                 onToggleToolSettings = { showToolSettings = !showToolSettings },
+                onOpenColorWheel = { showColorWheel = true },
                 onPickColor = { argb ->
                     viewModel.updateToolConfig {
                         when (it.activeTool) {
@@ -203,7 +238,6 @@ fun EditorScreen(
                 onToggleAllTapes = viewModel::toggleAllTapesOnPage
             )
 
-            // Optional Voice Recording Strip
             if (showAudioBar) {
                 AudioRecorderStrip(
                     notebook = notebook,
@@ -221,100 +255,155 @@ fun EditorScreen(
                 )
             }
 
-            // 3. Main Canvas Workspace (+ Optional Split-Screen Dual-Page + Layers Panel)
+            // 3. Main Canvas Workspace (+ Split View + Outline/Layers Side Sheets)
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                if (showOutlinePanel) {
+                    OutlineBookmarksPanel(
+                        notebook = notebook,
+                        currentPageIndex = editor.currentPageIndex,
+                        onJumpToPage = viewModel::selectPage,
+                        onAddBookmark = viewModel::addBookmark,
+                        onDeleteBookmark = viewModel::deleteBookmark,
+                        onClose = { showOutlinePanel = false }
+                    )
+                }
+
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     if (editor.splitScreenDualPage && notebook.pages.size > 1) {
                         val rightIdx = (editor.currentPageIndex + 1).coerceAtMost(notebook.pages.lastIndex)
                         Row(modifier = Modifier.fillMaxSize()) {
                             HandwritingCanvas(
-                                page = page,
+                                pages = notebook.pages,
+                                currentPageIndex = editor.currentPageIndex,
+                                scrollDirection = ScrollDirection.HORIZONTAL_PAGING,
                                 toolConfig = cfg,
                                 stylusOnlyMode = editor.stylusOnlyMode,
                                 zoomLocked = editor.zoomLocked,
+                                darkPdfInvert = editor.darkPdfInvert,
+                                showRuler = editor.showRuler,
+                                showZoomWindow = editor.showZoomWindow,
+                                zoomRect = editor.zoomRect,
                                 selectedStrokeIds = editor.selectedStrokeIds,
+                                selectedImageId = editor.selectedImageId,
                                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                                onCommitStroke = viewModel::commitStroke,
-                                onEraseAt = viewModel::eraseAt,
+                                onCommitStroke = viewModel::commitStrokeOnPage,
+                                onEraseAt = viewModel::eraseAtOnPage,
                                 onSelectLasso = viewModel::selectLassoPolygon,
                                 onDragSelection = viewModel::translateSelectedStrokes,
                                 onTapTape = viewModel::tryToggleTapeAt,
-                                onRequestTextEdit = { x, y, id, text ->
-                                    pendingTextEdit = TextEditRequest(x, y, id, text)
-                                }
+                                onTapHyperlink = viewModel::selectPage,
+                                onSelectImage = viewModel::selectImage,
+                                onRequestTextEdit = { x, y, id, text -> pendingTextEdit = TextEditRequest(x, y, id, text) },
+                                onRequestHyperlinkCreate = { x, y -> pendingHyperlinkPos = x to y }
                             )
-                            Box(
-                                modifier = Modifier
-                                    .width(2.dp)
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.outline)
-                            )
+                            Box(modifier = Modifier.width(2.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outline))
                             HandwritingCanvas(
-                                page = notebook.pages[rightIdx],
+                                pages = notebook.pages,
+                                currentPageIndex = rightIdx,
+                                scrollDirection = ScrollDirection.HORIZONTAL_PAGING,
                                 toolConfig = cfg,
                                 stylusOnlyMode = editor.stylusOnlyMode,
                                 zoomLocked = editor.zoomLocked,
+                                darkPdfInvert = editor.darkPdfInvert,
+                                showRuler = false,
+                                showZoomWindow = false,
+                                zoomRect = editor.zoomRect,
                                 selectedStrokeIds = emptySet(),
+                                selectedImageId = null,
                                 readOnly = true,
                                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                                onCommitStroke = { _, _ -> },
-                                onEraseAt = { _, _, _ -> },
+                                onCommitStroke = { _, _, _ -> },
+                                onEraseAt = { _, _, _, _ -> },
                                 onSelectLasso = {},
                                 onDragSelection = { _, _, _ -> },
                                 onTapTape = { _, _ -> false },
-                                onRequestTextEdit = { _, _, _, _ -> }
+                                onTapHyperlink = viewModel::selectPage,
+                                onSelectImage = {},
+                                onRequestTextEdit = { _, _, _, _ -> },
+                                onRequestHyperlinkCreate = { _, _ -> }
                             )
                         }
                     } else {
                         HandwritingCanvas(
-                            page = page,
+                            pages = notebook.pages,
+                            currentPageIndex = editor.currentPageIndex,
+                            scrollDirection = editor.scrollDirection,
                             toolConfig = cfg,
                             stylusOnlyMode = editor.stylusOnlyMode,
                             zoomLocked = editor.zoomLocked,
+                            darkPdfInvert = editor.darkPdfInvert,
+                            showRuler = editor.showRuler,
+                            showZoomWindow = editor.showZoomWindow,
+                            zoomRect = editor.zoomRect,
                             selectedStrokeIds = editor.selectedStrokeIds,
+                            selectedImageId = editor.selectedImageId,
                             modifier = Modifier.fillMaxSize(),
-                            onCommitStroke = viewModel::commitStroke,
-                            onEraseAt = viewModel::eraseAt,
+                            onCommitStroke = viewModel::commitStrokeOnPage,
+                            onEraseAt = viewModel::eraseAtOnPage,
                             onSelectLasso = viewModel::selectLassoPolygon,
                             onDragSelection = viewModel::translateSelectedStrokes,
                             onTapTape = viewModel::tryToggleTapeAt,
-                            onRequestTextEdit = { x, y, id, text ->
-                                pendingTextEdit = TextEditRequest(x, y, id, text)
-                            }
+                            onTapHyperlink = viewModel::selectPage,
+                            onSelectImage = viewModel::selectImage,
+                            onRequestTextEdit = { x, y, id, text -> pendingTextEdit = TextEditRequest(x, y, id, text) },
+                            onRequestHyperlinkCreate = { x, y -> pendingHyperlinkPos = x to y }
                         )
                     }
 
-                    // Tool Settings Popover Card
                     if (showToolSettings) {
                         ToolSettingsCard(
                             cfg = cfg,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 8.dp),
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
                             onUpdate = viewModel::updateToolConfig,
-                            onAddToFavorites = {
-                                viewModel.addCurrentToolToFavorites()
-                                showToolSettings = false
-                            },
+                            onOpenColorWheel = { showToolSettings = false; showColorWheel = true },
+                            onAddToFavorites = { viewModel.addCurrentToolToFavorites(); showToolSettings = false },
                             onClose = { showToolSettings = false }
                         )
                     }
 
-                    // Lasso Selection Action Bar
+                    // Lasso Action Bar (with ML Kit Handwriting-to-Text!)
                     if (editor.selectedStrokeIds.isNotEmpty()) {
                         LassoActionBar(
                             count = editor.selectedStrokeIds.size,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 14.dp),
+                            isRecognizing = editor.isRecognizingHandwriting,
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
                             onRecolor = viewModel::recolorSelectedStrokes,
+                            onConvertToText = viewModel::convertSelectedStrokesToText,
                             onDuplicate = viewModel::duplicateSelectedStrokes,
                             onDelete = viewModel::deleteSelectedStrokes,
                             onClear = viewModel::clearSelection
                         )
                     }
 
-                    // Movable Floating Favorites Toolbar (Freenotes' `fragment_toolbar_sticky`)
+                    // Selected Image Action Pill (Freehand/Rect Crop & Delete)
+                    if (selectedImage != null) {
+                        Surface(
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
+                            shape = RoundedCornerShape(22.dp),
+                            shadowElevation = 6.dp,
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TextButton(onClick = { showImageCropDialog = true }) {
+                                    Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Crop (Freehand/Rect)")
+                                }
+                                IconButton(onClick = viewModel::deleteSelectedImage, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Image", tint = MaterialTheme.colorScheme.error)
+                                }
+                                IconButton(onClick = { viewModel.selectImage(null) }, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Done")
+                                }
+                            }
+                        }
+                    }
+
+                    // Movable Floating Favorites Toolbar (`fragment_toolbar_sticky`)
                     if (editor.showStickyFavoritesBar && state.favoriteTools.isNotEmpty()) {
                         Surface(
                             shape = RoundedCornerShape(24.dp),
@@ -336,20 +425,14 @@ fun EditorScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.Star,
-                                    contentDescription = "Favorites",
-                                    tint = Color(0xFFF59E0B),
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                Icon(Icons.Default.Star, contentDescription = "Favorites", tint = Color(0xFFF59E0B), modifier = Modifier.size(16.dp))
                                 state.favoriteTools.forEach { preset ->
-                                    val isCurrent = cfg.activeTool == preset.toolType &&
-                                        cfg.activeColorArgb == preset.colorArgb
+                                    val isCurrent = cfg.activeTool == preset.toolType && cfg.activeColorArgb == preset.colorArgb
                                     Box(
                                         modifier = Modifier
                                             .size(34.dp)
                                             .clip(CircleShape)
-                                            .background(Color(preset.colorArgb).copy(alpha = 0.16f))
+                                            .background(Color(preset.colorArgb).copy(alpha = 0.14f))
                                             .border(
                                                 width = if (isCurrent) 2.5.dp else 1.dp,
                                                 color = if (isCurrent) MaterialTheme.colorScheme.primary else Color(preset.colorArgb),
@@ -370,14 +453,21 @@ fun EditorScreen(
                         }
                     }
 
-                    // Pomodoro Focus Study Timer Floating Pill
+                    // Floating PiP Lecture Video Study Window
+                    editor.pipVideoUri?.let { uri ->
+                        FloatingVideoOverlay(
+                            videoUri = uri,
+                            onCaptureFrame = viewModel::capturePipVideoFrame,
+                            onClose = viewModel::closePipVideo
+                        )
+                    }
+
+                    // Pomodoro Focus Timer Overlay
                     if (editor.showPomodoroWidget) {
                         PomodoroOverlay(
                             secondsLeft = editor.pomodoroSecondsLeft,
                             running = editor.pomodoroRunning,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(12.dp),
+                            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                             onToggleRun = viewModel::togglePomodoroRunning,
                             onReset = { viewModel.resetPomodoro(25) },
                             onClose = viewModel::togglePomodoroWidget
@@ -385,7 +475,6 @@ fun EditorScreen(
                     }
                 }
 
-                // Right-side Layers Panel (`fragment_layer_setting`)
                 if (showLayersPanel) {
                     LayersSidePanel(
                         page = page,
@@ -400,28 +489,87 @@ fun EditorScreen(
                 }
             }
 
+            // Optional Docked Zoom Window (Magnifier Writing Box)
+            if (editor.showZoomWindow) {
+                ZoomWindowPanel(
+                    page = page,
+                    zoomRect = editor.zoomRect,
+                    toolConfig = cfg,
+                    onAdvanceRight = viewModel::advanceZoomBoxRight,
+                    onStepLeft = viewModel::stepZoomBoxLeft,
+                    onNewLine = viewModel::zoomBoxNewLine,
+                    onCommitStroke = viewModel::commitStroke,
+                    onClose = viewModel::toggleZoomWindow
+                )
+            }
+
             // 4. Bottom Page Navigation Strip
             BottomPageStrip(
                 currentIndex = editor.currentPageIndex,
                 totalPages = notebook.pages.size,
                 templateLabel = "${page.template.label} • ${page.paperColor.label}",
+                scrollModeLabel = editor.scrollDirection.label,
                 onPrev = { viewModel.selectPage(editor.currentPageIndex - 1) },
                 onNext = { viewModel.selectPage(editor.currentPageIndex + 1) },
                 onAddPage = { viewModel.addPage() },
                 onChangeTemplate = { showTemplateDialog = true },
+                onToggleScrollMode = viewModel::toggleScrollDirection,
                 onOpenPageSorter = { showPageSorter = true }
             )
         }
 
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 56.dp)
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp)
         )
     }
 
-    // Text Box Edit Dialog
+    // Dialogs
+    if (showColorWheel) {
+        ColorPickerDialog(
+            initialColorArgb = cfg.activeColorArgb,
+            savedColors = state.customColors,
+            onPickColor = { argb ->
+                viewModel.updateToolConfig {
+                    when (it.activeTool) {
+                        ToolType.HIGHLIGHTER -> it.copy(highlighterColorArgb = argb)
+                        ToolType.TAPE -> it.copy(tapeColorArgb = argb)
+                        else -> it.copy(penColorArgb = argb)
+                    }
+                }
+                showColorWheel = false
+            },
+            onSaveCustomColor = viewModel::saveCustomColor,
+            onDismiss = { showColorWheel = false }
+        )
+    }
+
+    if (showStickersDialog) {
+        StickersDialog(
+            onPickSticker = { tpl -> viewModel.addSticker(tpl); showStickersDialog = false },
+            onDismiss = { showStickersDialog = false }
+        )
+    }
+
+    if (showFlashcardsDialog) {
+        FlashcardsDialog(
+            cards = notebook.flashcards,
+            onAddCard = viewModel::addFlashcard,
+            onRateCard = viewModel::rateFlashcard,
+            onDeleteCard = viewModel::deleteFlashcard,
+            onDismiss = { showFlashcardsDialog = false }
+        )
+    }
+
+    if (showImageCropDialog && selectedImage != null) {
+        ImageCropDialog(
+            imagePath = selectedImage.filePath,
+            onCropRect = { l, t, r, b -> viewModel.cropSelectedImageRect(l, t, r, b); showImageCropDialog = false },
+            onCropFreehand = { poly -> viewModel.cropSelectedImageFreehand(poly); showImageCropDialog = false },
+            onDismiss = { showImageCropDialog = false }
+        )
+    }
+
     pendingTextEdit?.let { req ->
         var text by remember(req) { mutableStateOf(req.initialText) }
         AlertDialog(
@@ -437,28 +585,56 @@ fun EditorScreen(
                 )
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.addOrUpdateTextBox(req.x, req.y, text, req.existingId)
-                        pendingTextEdit = null
-                    }
-                ) { Text("Save") }
+                Button(onClick = { viewModel.addOrUpdateTextBox(req.x, req.y, text, req.existingId); pendingTextEdit = null }) {
+                    Text("Save")
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { pendingTextEdit = null }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { pendingTextEdit = null }) { Text("Cancel") } }
         )
     }
 
-    // Page Overview & Sorter Dialog
+    pendingHyperlinkPos?.let { (hx, hy) ->
+        var label by remember { mutableStateOf("") }
+        var targetPage by remember { mutableIntStateOf((editor.currentPageIndex + 1).coerceAtMost(notebook.pages.lastIndex)) }
+        AlertDialog(
+            onDismissRequest = { pendingHyperlinkPos = null },
+            title = { Text("Insert Page Hyperlink") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = label,
+                        onValueChange = { label = it },
+                        label = { Text("Link Label") },
+                        placeholder = { Text("e.g., → See Formula Sheet") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Target Page: ${targetPage + 1} / ${notebook.pages.size}", style = MaterialTheme.typography.labelMedium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(notebook.pages.indices.toList()) { idx ->
+                            FilterChip(
+                                selected = targetPage == idx,
+                                onClick = { targetPage = idx },
+                                label = { Text("P.${idx + 1}") }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.addHyperlink(label, targetPage, hx, hy); pendingHyperlinkPos = null }) {
+                    Text("Insert Link")
+                }
+            },
+            dismissButton = { TextButton(onClick = { pendingHyperlinkPos = null }) { Text("Cancel") } }
+        )
+    }
+
     if (showPageSorter) {
         PageSorterDialog(
             pages = notebook.pages,
             currentIndex = editor.currentPageIndex,
-            onSelect = { idx ->
-                viewModel.selectPage(idx)
-                showPageSorter = false
-            },
+            onSelect = { idx -> viewModel.selectPage(idx); showPageSorter = false },
             onDuplicate = viewModel::duplicatePage,
             onDelete = viewModel::deletePage,
             onMoveLeft = { idx -> viewModel.movePage(idx, idx - 1) },
@@ -468,26 +644,17 @@ fun EditorScreen(
         )
     }
 
-    // Change Paper Template Dialog
     if (showTemplateDialog) {
         ChangeTemplateDialog(
             currentTemplate = page.template,
             currentColor = page.paperColor,
-            onApply = { tpl, color ->
-                viewModel.changeCurrentPageTemplate(tpl, color)
-                showTemplateDialog = false
-            },
+            onApply = { tpl, color -> viewModel.changeCurrentPageTemplate(tpl, color); showTemplateDialog = false },
             onDismiss = { showTemplateDialog = false }
         )
     }
 }
 
-private data class TextEditRequest(
-    val x: Float,
-    val y: Float,
-    val existingId: String?,
-    val initialText: String
-)
+private data class TextEditRequest(val x: Float, val y: Float, val existingId: String?, val initialText: String)
 
 @Composable
 private fun TopEditorBar(
@@ -495,43 +662,44 @@ private fun TopEditorBar(
     notebook: Notebook,
     viewModel: MainViewModel,
     showLayersPanel: Boolean,
+    showOutlinePanel: Boolean,
     onToggleLayers: () -> Unit,
+    onToggleOutline: () -> Unit,
+    onOpenFlashcards: () -> Unit,
+    onOpenPipVideo: () -> Unit,
     onOpenPageSorter: () -> Unit,
     onToggleAudioBar: () -> Unit,
-    onExportPdf: () -> Unit
+    onExportPdf: () -> Unit,
+    onExportPng: () -> Unit,
+    onExportBackup: () -> Unit
 ) {
     val editor = state.editor
-    Surface(
-        tonalElevation = 3.dp,
-        color = MaterialTheme.colorScheme.surface
-    ) {
+    var showMoreMenu by remember { mutableStateOf(false) }
+
+    Surface(tonalElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = viewModel::closeEditorToLibrary) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Library")
             }
 
-            // Multi-Tab Open Notebooks Strip
-            LazyRow(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
+            LazyRow(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(editor.openNotebookIds) { id ->
                     val nb = state.notebooks.find { it.id == id } ?: return@items
                     val active = id == notebook.id
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                         modifier = Modifier.clickable { viewModel.openNotebook(id) }
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(nb.coverColorArgb)))
+                            Spacer(Modifier.width(6.dp))
                             Text(
                                 nb.title,
                                 style = MaterialTheme.typography.labelMedium,
@@ -544,9 +712,7 @@ private fun TopEditorBar(
                                 Icon(
                                     Icons.Default.Close,
                                     contentDescription = "Close Tab",
-                                    modifier = Modifier
-                                        .size(14.dp)
-                                        .clickable { viewModel.closeNotebookTab(id) }
+                                    modifier = Modifier.size(14.dp).clickable { viewModel.closeNotebookTab(id) }
                                 )
                             }
                         }
@@ -554,42 +720,36 @@ private fun TopEditorBar(
                 }
             }
 
-            // Undo / Redo
             IconButton(onClick = viewModel::undo, enabled = viewModel.canUndo()) {
                 Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
             }
             IconButton(onClick = viewModel::redo, enabled = viewModel.canRedo()) {
                 Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
             }
-
-            // Stylus-Only Palm Rejection toggle
-            IconButton(onClick = viewModel::toggleStylusOnlyMode) {
+            IconButton(onClick = onToggleOutline) {
                 Icon(
-                    Icons.Default.TouchApp,
-                    contentDescription = "Stylus-Only Palm Rejection",
-                    tint = if (editor.stylusOnlyMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    Icons.Default.Bookmarks,
+                    contentDescription = "Outline & Search",
+                    tint = if (showOutlinePanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-
-            // Zoom Lock (`fl_zoom_lock`)
-            IconButton(onClick = viewModel::toggleZoomLock) {
+            IconButton(onClick = onOpenFlashcards) {
+                Icon(Icons.Default.Style, contentDescription = "Flashcards", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(onClick = onOpenPipVideo) {
                 Icon(
-                    if (editor.zoomLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                    contentDescription = "Zoom Lock",
-                    tint = if (editor.zoomLocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    Icons.Default.OndemandVideo,
+                    contentDescription = "PiP Lecture Video",
+                    tint = if (editor.pipVideoUri != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-
-            // Split-Screen Dual Page
             IconButton(onClick = viewModel::toggleSplitScreenDualPage) {
                 Icon(
                     Icons.Default.VerticalSplit,
-                    contentDescription = "Split Screen Dual Page",
+                    contentDescription = "Split Screen",
                     tint = if (editor.splitScreenDualPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-
-            // Layers
             IconButton(onClick = onToggleLayers) {
                 Icon(
                     Icons.Default.Layers,
@@ -597,8 +757,6 @@ private fun TopEditorBar(
                     tint = if (showLayersPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-
-            // Voice Notes
             IconButton(onClick = onToggleAudioBar) {
                 Icon(
                     Icons.Default.Mic,
@@ -606,8 +764,6 @@ private fun TopEditorBar(
                     tint = if (editor.isRecordingAudio) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-
-            // Pomodoro Focus Timer
             IconButton(onClick = viewModel::togglePomodoroWidget) {
                 Icon(
                     Icons.Default.Timer,
@@ -615,15 +771,36 @@ private fun TopEditorBar(
                     tint = if (editor.showPomodoroWidget) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-
-            // Page Sorter
             IconButton(onClick = onOpenPageSorter) {
-                Icon(Icons.Default.GridView, contentDescription = "Page Overview")
+                Icon(Icons.Default.GridView, contentDescription = "Pages")
             }
 
-            // Export PDF
-            IconButton(onClick = onExportPdf) {
-                Icon(Icons.Default.PictureAsPdf, contentDescription = "Export PDF")
+            Box {
+                IconButton(onClick = { showMoreMenu = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More Options")
+                }
+                DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (editor.stylusOnlyMode) "✓ Stylus-Only Palm Rejection" else "Stylus-Only Palm Rejection") },
+                        onClick = { viewModel.toggleStylusOnlyMode(); showMoreMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (editor.zoomLocked) "✓ Zoom Locked" else "Lock Zoom") },
+                        onClick = { viewModel.toggleZoomLock(); showMoreMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (editor.darkPdfInvert) "✓ Dark-Mode PDF Invert" else "Dark-Mode PDF Invert") },
+                        onClick = { viewModel.toggleDarkPdfInvert(); showMoreMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (editor.showStickyFavoritesBar) "✓ Floating Favorites Bar" else "Show Floating Favorites Bar") },
+                        onClick = { viewModel.toggleStickyFavoritesBar(); showMoreMenu = false }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(text = { Text("Export Multi-Page PDF") }, onClick = { showMoreMenu = false; onExportPdf() })
+                    DropdownMenuItem(text = { Text("Export Current Page PNG") }, onClick = { showMoreMenu = false; onExportPng() })
+                    DropdownMenuItem(text = { Text("Export .freenotes.json Backup") }, onClick = { showMoreMenu = false; onExportBackup() })
+                }
             }
         }
     }
@@ -632,86 +809,84 @@ private fun TopEditorBar(
 @Composable
 private fun PrimaryToolBar(
     cfg: ToolConfig,
+    showRuler: Boolean,
+    showZoomWindow: Boolean,
     allTapesRevealed: Boolean,
     showToolSettings: Boolean,
     onSelectTool: (ToolType) -> Unit,
+    onToggleRuler: () -> Unit,
+    onToggleZoomWindow: () -> Unit,
     onToggleToolSettings: () -> Unit,
+    onOpenColorWheel: () -> Unit,
     onPickColor: (Long) -> Unit,
     onPickWidth: (Float) -> Unit,
     onToggleAllTapes: () -> Unit
 ) {
-    Surface(
-        tonalElevation = 1.dp,
-        color = MaterialTheme.colorScheme.surface
-    ) {
+    Surface(tonalElevation = 1.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            ToolButton(Icons.Default.Edit, "Fountain", cfg.activeTool == ToolType.FOUNTAIN_PEN) { onSelectTool(ToolType.FOUNTAIN_PEN) }
-            ToolButton(Icons.Default.Create, "Ballpoint", cfg.activeTool == ToolType.BALLPOINT) { onSelectTool(ToolType.BALLPOINT) }
-            ToolButton(Icons.Default.Draw, "Pencil", cfg.activeTool == ToolType.PENCIL) { onSelectTool(ToolType.PENCIL) }
-            ToolButton(Icons.Default.Brush, "Art Pen", cfg.activeTool == ToolType.ART_PEN) { onSelectTool(ToolType.ART_PEN) }
-            ToolButton(Icons.Default.BorderColor, "Highlighter", cfg.activeTool == ToolType.HIGHLIGHTER) { onSelectTool(ToolType.HIGHLIGHTER) }
-            ToolButton(Icons.Default.AutoFixHigh, "Eraser", cfg.activeTool == ToolType.ERASER) { onSelectTool(ToolType.ERASER) }
-            ToolButton(Icons.Default.Gesture, "Lasso", cfg.activeTool == ToolType.LASSO) { onSelectTool(ToolType.LASSO) }
-            ToolButton(Icons.Default.VisibilityOff, "Tape", cfg.activeTool == ToolType.TAPE) { onSelectTool(ToolType.TAPE) }
+            // Custom realistic Freenotes nib/brush icons!
+            NibToolButton(ToolType.FOUNTAIN_PEN, "Fountain", Color(cfg.penColorArgb), cfg.activeTool == ToolType.FOUNTAIN_PEN) { onSelectTool(ToolType.FOUNTAIN_PEN) }
+            NibToolButton(ToolType.BALLPOINT, "Ballpoint", Color(cfg.penColorArgb), cfg.activeTool == ToolType.BALLPOINT) { onSelectTool(ToolType.BALLPOINT) }
+            NibToolButton(ToolType.PENCIL, "Pencil", Color(cfg.penColorArgb), cfg.activeTool == ToolType.PENCIL) { onSelectTool(ToolType.PENCIL) }
+            NibToolButton(ToolType.ART_PEN, "Art", Color(cfg.penColorArgb), cfg.activeTool == ToolType.ART_PEN) { onSelectTool(ToolType.ART_PEN) }
+            NibToolButton(ToolType.HIGHLIGHTER, "Highlight", Color(cfg.highlighterColorArgb), cfg.activeTool == ToolType.HIGHLIGHTER) { onSelectTool(ToolType.HIGHLIGHTER) }
+            NibToolButton(ToolType.ERASER, "Eraser", Color(0xFFF472B6), cfg.activeTool == ToolType.ERASER) { onSelectTool(ToolType.ERASER) }
+            NibToolButton(ToolType.LASSO, "Lasso", Color(0xFF2563EB), cfg.activeTool == ToolType.LASSO) { onSelectTool(ToolType.LASSO) }
+            NibToolButton(ToolType.TAPE, "Tape", Color(cfg.tapeColorArgb), cfg.activeTool == ToolType.TAPE) { onSelectTool(ToolType.TAPE) }
+
             ToolButton(Icons.Default.ShapeLine, "Shape", cfg.activeTool == ToolType.SHAPE) { onSelectTool(ToolType.SHAPE) }
             ToolButton(Icons.Default.TextFields, "Text", cfg.activeTool == ToolType.TEXT) { onSelectTool(ToolType.TEXT) }
+            ToolButton(Icons.Default.Image, "Photo", cfg.activeTool == ToolType.IMAGE) { onSelectTool(ToolType.IMAGE) }
+            ToolButton(Icons.Default.EmojiEmotions, "Sticker", false) { onSelectTool(ToolType.STICKER) }
+            ToolButton(Icons.Default.Link, "Link", cfg.activeTool == ToolType.HYPERLINK) { onSelectTool(ToolType.HYPERLINK) }
+            ToolButton(Icons.Default.Straighten, "Ruler", showRuler, onToggleRuler)
+            ToolButton(Icons.Default.ZoomIn, "ZoomBox", showZoomWindow, onToggleZoomWindow)
             ToolButton(Icons.Default.Flare, "Laser", cfg.activeTool == ToolType.LASER) { onSelectTool(ToolType.LASER) }
 
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
 
-            // 3 Quick Colors (Freenotes style)
+            // 3 Quick Colors + Color Wheel
             val quickColors = if (cfg.activeTool == ToolType.HIGHLIGHTER) cfg.highlighterQuickColors else cfg.penQuickColors
             quickColors.forEach { c ->
                 val isSelected = cfg.activeColorArgb == c
                 Box(
                     modifier = Modifier
-                        .size(26.dp)
+                        .size(25.dp)
                         .clip(CircleShape)
                         .background(Color(c))
-                        .border(
-                            width = if (isSelected) 2.5.dp else 1.dp,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.4f),
-                            shape = CircleShape
-                        )
+                        .border(if (isSelected) 2.5.dp else 1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.4f), CircleShape)
                         .clickable { onPickColor(c) }
                 )
             }
+            IconButton(onClick = onOpenColorWheel, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.ColorLens, contentDescription = "Color Wheel", tint = Color(cfg.activeColorArgb))
+            }
 
-            Spacer(Modifier.width(8.dp))
-
-            // 3 Quick Width Presets
+            // 3 Quick Width Dots
             val widths = if (cfg.activeTool == ToolType.HIGHLIGHTER) listOf(18f, 26f, 38f) else listOf(2.5f, 4.5f, 8.5f)
             widths.forEach { w ->
                 val isSel = kotlin.math.abs(cfg.activeWidth - w) < 0.8f
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(26.dp)
                         .clip(CircleShape)
                         .background(if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                         .clickable { onPickWidth(w) },
                     contentAlignment = Alignment.Center
                 ) {
                     val dot = ((w / widths.last()) * 14f).coerceIn(5f, 15f)
-                    Box(
-                        modifier = Modifier
-                            .size(dot.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.onSurface)
-                    )
+                    Box(modifier = Modifier.size(dot.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface))
                 }
             }
 
-            Spacer(Modifier.width(6.dp))
-
-            // Toggle Tool Settings Popover
-            IconButton(onClick = onToggleToolSettings, modifier = Modifier.size(34.dp)) {
+            IconButton(onClick = onToggleToolSettings, modifier = Modifier.size(32.dp)) {
                 Icon(
                     Icons.Default.Tune,
                     contentDescription = "Tool Settings",
@@ -719,17 +894,12 @@ private fun PrimaryToolBar(
                 )
             }
 
-            // Quick Reveal/Hide All Active Recall Tapes
             FilterChip(
                 selected = allTapesRevealed,
                 onClick = onToggleAllTapes,
                 label = { Text(if (allTapesRevealed) "Cover Tape" else "Reveal Tape") },
                 leadingIcon = {
-                    Icon(
-                        if (allTapesRevealed) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    Icon(if (allTapesRevealed) Icons.Default.VisibilityOff else Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
                 }
             )
         }
@@ -737,9 +907,10 @@ private fun PrimaryToolBar(
 }
 
 @Composable
-private fun ToolButton(
-    icon: ImageVector,
+private fun NibToolButton(
+    tool: ToolType,
     label: String,
+    activeColor: Color,
     selected: Boolean,
     onClick: () -> Unit
 ) {
@@ -749,15 +920,10 @@ private fun ToolButton(
         modifier = Modifier.clickable(onClick = onClick)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                icon,
-                contentDescription = label,
-                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
+            FreenotesToolIcon(tool = tool, activeColor = activeColor, isSelected = selected, size = 22.dp)
             Text(
                 label,
                 style = MaterialTheme.typography.labelSmall,
@@ -768,15 +934,33 @@ private fun ToolButton(
 }
 
 @Composable
+private fun ToolButton(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(icon, contentDescription = label, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
 private fun ToolSettingsCard(
     cfg: ToolConfig,
     modifier: Modifier = Modifier,
     onUpdate: ((ToolConfig) -> ToolConfig) -> Unit,
+    onOpenColorWheel: () -> Unit,
     onAddToFavorites: () -> Unit,
     onClose: () -> Unit
 ) {
     Card(
-        modifier = modifier.width(420.dp),
+        modifier = modifier.width(430.dp),
         shape = RoundedCornerShape(18.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -787,51 +971,42 @@ private fun ToolSettingsCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "${cfg.activeTool.name.replace('_', ' ')} Settings",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("${cfg.activeTool.name.replace('_', ' ')} Settings", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Row {
                     TextButton(onClick = onAddToFavorites) {
                         Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Pin Favorite")
                     }
-                    IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
+                    IconButton(onClick = onClose, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.Close, contentDescription = "Close") }
                 }
             }
 
-            // Color Palette
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(PaletteColors) { argb ->
-                    val sel = cfg.activeColorArgb == argb
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color(argb))
-                            .border(
-                                if (sel) 2.5.dp else 1.dp,
-                                if (sel) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f),
-                                CircleShape
-                            )
-                            .clickable {
-                                onUpdate {
-                                    when (it.activeTool) {
-                                        ToolType.HIGHLIGHTER -> it.copy(highlighterColorArgb = argb)
-                                        ToolType.TAPE -> it.copy(tapeColorArgb = argb)
-                                        else -> it.copy(penColorArgb = argb)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(PaletteColors) { argb ->
+                        val sel = cfg.activeColorArgb == argb
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(Color(argb))
+                                .border(if (sel) 2.5.dp else 1.dp, if (sel) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f), CircleShape)
+                                .clickable {
+                                    onUpdate {
+                                        when (it.activeTool) {
+                                            ToolType.HIGHLIGHTER -> it.copy(highlighterColorArgb = argb)
+                                            ToolType.TAPE -> it.copy(tapeColorArgb = argb)
+                                            else -> it.copy(penColorArgb = argb)
+                                        }
                                     }
                                 }
-                            }
-                    )
+                        )
+                    }
                 }
+                TextButton(onClick = onOpenColorWheel) { Text("Wheel") }
             }
 
-            // Size Slider
             val sizeRange = if (cfg.activeTool == ToolType.HIGHLIGHTER || cfg.activeTool == ToolType.TAPE) 10f..64f else 1f..22f
             Text("Stroke Width: ${cfg.activeWidth.roundToInt()} px", style = MaterialTheme.typography.labelMedium)
             Slider(
@@ -849,76 +1024,50 @@ private fun ToolSettingsCard(
                 valueRange = sizeRange
             )
 
-            // Stability (1€ Filter) & Pressure Sensitivity
             if (cfg.activeTool in listOf(ToolType.FOUNTAIN_PEN, ToolType.BALLPOINT, ToolType.PENCIL, ToolType.ART_PEN)) {
                 Text("1€ Pen Stability: ${(cfg.stability * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
-                Slider(
-                    value = cfg.stability,
-                    onValueChange = { v -> onUpdate { it.copy(stability = v) } }
-                )
-
+                Slider(value = cfg.stability, onValueChange = { v -> onUpdate { it.copy(stability = v) } })
                 Text("Pressure Sensitivity: ${(cfg.pressureSensitivity * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
-                Slider(
-                    value = cfg.pressureSensitivity,
-                    onValueChange = { v -> onUpdate { it.copy(pressureSensitivity = v) } }
-                )
+                Slider(value = cfg.pressureSensitivity, onValueChange = { v -> onUpdate { it.copy(pressureSensitivity = v) } })
             }
 
             if (cfg.activeTool == ToolType.HIGHLIGHTER) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     HighlighterStyle.entries.forEach { style ->
-                        FilterChip(
-                            selected = cfg.highlighterStyle == style,
-                            onClick = { onUpdate { it.copy(highlighterStyle = style) } },
-                            label = { Text(style.name) }
-                        )
+                        FilterChip(selected = cfg.highlighterStyle == style, onClick = { onUpdate { it.copy(highlighterStyle = style) } }, label = { Text(style.name) })
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Straight-Line Snap", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = cfg.highlighterStraightLine,
-                        onCheckedChange = { v -> onUpdate { it.copy(highlighterStraightLine = v) } }
-                    )
+                    Switch(checked = cfg.highlighterStraightLine, onCheckedChange = { v -> onUpdate { it.copy(highlighterStraightLine = v) } })
                 }
             }
 
             if (cfg.activeTool == ToolType.ERASER) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     EraserMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = cfg.eraserMode == mode,
-                            onClick = { onUpdate { it.copy(eraserMode = mode) } },
-                            label = { Text(if (mode == EraserMode.WHOLE_STROKE) "Whole Stroke" else "Pixel / Split") }
-                        )
+                        FilterChip(selected = cfg.eraserMode == mode, onClick = { onUpdate { it.copy(eraserMode = mode) } }, label = { Text(if (mode == EraserMode.WHOLE_STROKE) "Whole Stroke" else "Pixel / Split") })
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Erase Highlighter Only", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = cfg.eraseHighlighterOnly,
-                        onCheckedChange = { v -> onUpdate { it.copy(eraseHighlighterOnly = v) } }
-                    )
+                    Switch(checked = cfg.eraseHighlighterOnly, onCheckedChange = { v -> onUpdate { it.copy(eraseHighlighterOnly = v) } })
                 }
             }
 
             if (cfg.activeTool == ToolType.SHAPE) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(ShapeKind.entries) { kind ->
-                        FilterChip(
-                            selected = cfg.shapeKind == kind,
-                            onClick = { onUpdate { it.copy(shapeKind = kind) } },
-                            label = { Text(kind.name) }
-                        )
+                        FilterChip(selected = cfg.shapeKind == kind, onClick = { onUpdate { it.copy(shapeKind = kind) } }, label = { Text(kind.name) })
                     }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Fill Shape", style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = cfg.shapeFilled, onCheckedChange = { v -> onUpdate { it.copy(shapeFilled = v) } })
+                }
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Dashed Border", style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = cfg.shapeBorderDashed, onCheckedChange = { v -> onUpdate { it.copy(shapeBorderDashed = v) } })
                 }
             }
         }
@@ -928,32 +1077,26 @@ private fun ToolSettingsCard(
 @Composable
 private fun LassoActionBar(
     count: Int,
+    isRecognizing: Boolean,
     modifier: Modifier = Modifier,
     onRecolor: (Long) -> Unit,
+    onConvertToText: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     onClear: () -> Unit
 ) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        shadowElevation = 6.dp,
-        color = MaterialTheme.colorScheme.surface
-    ) {
+    Surface(modifier = modifier, shape = RoundedCornerShape(24.dp), shadowElevation = 6.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text("$count selected", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             listOf(0xFF1A1C1EL, 0xFF2563EBL, 0xFFDC2626L, 0xFF16A34AL).forEach { c ->
-                Box(
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clip(CircleShape)
-                        .background(Color(c))
-                        .clickable { onRecolor(c) }
-                )
+                Box(modifier = Modifier.size(22.dp).clip(CircleShape).background(Color(c)).clickable { onRecolor(c) })
+            }
+            TextButton(onClick = onConvertToText, enabled = !isRecognizing) {
+                Text(if (isRecognizing) "OCR..." else "To Text")
             }
             IconButton(onClick = onDuplicate, modifier = Modifier.size(30.dp)) {
                 Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate", modifier = Modifier.size(18.dp))
@@ -979,27 +1122,13 @@ private fun LayersSidePanel(
     onDeleteLayer: (String) -> Unit,
     onClose: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .width(260.dp)
-            .fillMaxHeight(),
-        tonalElevation = 4.dp,
-        color = MaterialTheme.colorScheme.surface
-    ) {
+    Surface(modifier = Modifier.width(260.dp).fillMaxHeight(), tonalElevation = 4.dp, color = MaterialTheme.colorScheme.surface) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Layers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Row {
-                    IconButton(onClick = onAddLayer, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Layer")
-                    }
-                    IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
+                    IconButton(onClick = onAddLayer, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Add, contentDescription = "Add Layer") }
+                    IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Close, contentDescription = "Close") }
                 }
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -1009,33 +1138,15 @@ private fun LayersSidePanel(
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelectLayer(layer.id) }
+                        modifier = Modifier.fillMaxWidth().clickable { onSelectLayer(layer.id) }
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                layer.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                modifier = Modifier.weight(1f)
-                            )
+                        Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(layer.name, style = MaterialTheme.typography.bodyMedium, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
                             IconButton(onClick = { onToggleVisibility(layer.id) }, modifier = Modifier.size(28.dp)) {
-                                Icon(
-                                    if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = "Visibility",
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                Icon(if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, contentDescription = "Visibility", modifier = Modifier.size(18.dp))
                             }
                             IconButton(onClick = { onToggleLock(layer.id) }, modifier = Modifier.size(28.dp)) {
-                                Icon(
-                                    if (layer.isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                                    contentDescription = "Lock",
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                Icon(if (layer.isLocked) Icons.Default.Lock else Icons.Default.LockOpen, contentDescription = "Lock", modifier = Modifier.size(18.dp))
                             }
                             if (page.layers.size > 1) {
                                 IconButton(onClick = { onDeleteLayer(layer.id) }, modifier = Modifier.size(28.dp)) {
@@ -1062,54 +1173,30 @@ private fun AudioRecorderStrip(
     onSeekForward: () -> Unit,
     onCycleSpeed: () -> Unit
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Button(
-                onClick = onToggleRecord,
-                shape = RoundedCornerShape(10.dp)
-            ) {
+            Button(onClick = onToggleRecord, shape = RoundedCornerShape(10.dp)) {
                 Icon(if (isRecording) Icons.Default.Stop else Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(if (isRecording) "Stop Recording" else "Record Lecture")
             }
-
-            LazyRow(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            LazyRow(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(notebook.recordings, key = { it.id }) { rec ->
                     val playing = playingId == rec.id
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surface
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface) {
+                        Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { onTogglePlay(rec.id, rec.filePath) }, modifier = Modifier.size(28.dp)) {
                                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Play")
                             }
                             Text(rec.title, style = MaterialTheme.typography.labelMedium)
                             if (playing) {
-                                IconButton(onClick = onSeekBack, modifier = Modifier.size(26.dp)) {
-                                    Icon(Icons.Default.Replay10, contentDescription = "-10s", modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(onClick = onSeekForward, modifier = Modifier.size(26.dp)) {
-                                    Icon(Icons.Default.Forward10, contentDescription = "+10s", modifier = Modifier.size(18.dp))
-                                }
-                                TextButton(onClick = onCycleSpeed) {
-                                    Text("${playbackSpeed}x", style = MaterialTheme.typography.labelSmall)
-                                }
+                                IconButton(onClick = onSeekBack, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.Replay10, contentDescription = "-10s", modifier = Modifier.size(18.dp)) }
+                                IconButton(onClick = onSeekForward, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.Forward10, contentDescription = "+10s", modifier = Modifier.size(18.dp)) }
+                                TextButton(onClick = onCycleSpeed) { Text("${playbackSpeed}x", style = MaterialTheme.typography.labelSmall) }
                             }
                         }
                     }
@@ -1130,23 +1217,14 @@ private fun PomodoroOverlay(
 ) {
     val mins = secondsLeft / 60
     val secs = secondsLeft % 60
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        shadowElevation = 6.dp,
-        color = MaterialTheme.colorScheme.surface
-    ) {
+    Surface(modifier = modifier, shape = RoundedCornerShape(16.dp), shadowElevation = 6.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text(
-                "%02d:%02d".format(mins, secs),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Text("%02d:%02d".format(mins, secs), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             IconButton(onClick = onToggleRun, modifier = Modifier.size(30.dp)) {
                 Icon(if (running) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Start/Pause")
             }
@@ -1163,39 +1241,33 @@ private fun BottomPageStrip(
     currentIndex: Int,
     totalPages: Int,
     templateLabel: String,
+    scrollModeLabel: String,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onAddPage: () -> Unit,
     onChangeTemplate: () -> Unit,
+    onToggleScrollMode: () -> Unit,
     onOpenPageSorter: () -> Unit
 ) {
-    Surface(
-        tonalElevation = 2.dp,
-        color = MaterialTheme.colorScheme.surface
-    ) {
+    Surface(tonalElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            TextButton(onClick = onChangeTemplate) {
-                Text(templateLabel, style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(onClick = onChangeTemplate) { Text(templateLabel, style = MaterialTheme.typography.labelMedium) }
+                TextButton(onClick = onToggleScrollMode) { Text(scrollModeLabel, style = MaterialTheme.typography.labelMedium) }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPrev, enabled = currentIndex > 0, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = onPrev, enabled = currentIndex > 0, modifier = Modifier.size(30.dp)) {
                     Icon(Icons.Default.ChevronLeft, contentDescription = "Previous Page")
                 }
                 TextButton(onClick = onOpenPageSorter) {
-                    Text(
-                        "Page ${currentIndex + 1} / $totalPages",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Text("Page ${currentIndex + 1} / $totalPages", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 }
-                IconButton(onClick = onNext, enabled = currentIndex < totalPages - 1, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = onNext, enabled = currentIndex < totalPages - 1, modifier = Modifier.size(30.dp)) {
                     Icon(Icons.Default.ChevronRight, contentDescription = "Next Page")
                 }
             }
@@ -1224,11 +1296,7 @@ private fun PageSorterDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Pages (${pages.size})", fontWeight = FontWeight.Bold)
                 TextButton(onClick = onAddPage) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1249,51 +1317,26 @@ private fun PageSorterDialog(
                     Card(
                         modifier = Modifier
                             .clickable { onSelect(idx) }
-                            .border(
-                                width = if (isCur) 2.5.dp else 1.dp,
-                                color = if (isCur) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                shape = RoundedCornerShape(10.dp)
-                            ),
+                            .border(if (isCur) 2.5.dp else 1.dp, if (isCur) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp)),
                         shape = RoundedCornerShape(10.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(p.paperColor.argb))
                     ) {
-                        Column(
-                            modifier = Modifier.padding(10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                "Page ${idx + 1}",
-                                fontWeight = FontWeight.Bold,
-                                color = if (p.paperColor == PaperColor.DARK) Color.White else Color.Black
-                            )
-                            Text(
-                                "${p.template.label} • ${p.strokes.size} strokes",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.Gray
-                            )
+                        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Page ${idx + 1}", fontWeight = FontWeight.Bold, color = if (p.paperColor == PaperColor.DARK) Color.White else Color.Black)
+                            Text("${p.template.label} • ${p.strokes.size} strokes", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                             Spacer(Modifier.height(6.dp))
                             Row {
-                                IconButton(onClick = { onMoveLeft(idx) }, enabled = idx > 0, modifier = Modifier.size(26.dp)) {
-                                    Icon(Icons.Default.ChevronLeft, contentDescription = "Move Left", modifier = Modifier.size(16.dp))
-                                }
-                                IconButton(onClick = { onDuplicate(idx) }, modifier = Modifier.size(26.dp)) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate", modifier = Modifier.size(15.dp))
-                                }
-                                IconButton(onClick = { onDelete(idx) }, enabled = pages.size > 1, modifier = Modifier.size(26.dp)) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(15.dp))
-                                }
-                                IconButton(onClick = { onMoveRight(idx) }, enabled = idx < pages.lastIndex, modifier = Modifier.size(26.dp)) {
-                                    Icon(Icons.Default.ChevronRight, contentDescription = "Move Right", modifier = Modifier.size(16.dp))
-                                }
+                                IconButton(onClick = { onMoveLeft(idx) }, enabled = idx > 0, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.ChevronLeft, contentDescription = "Move Left", modifier = Modifier.size(16.dp)) }
+                                IconButton(onClick = { onDuplicate(idx) }, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate", modifier = Modifier.size(15.dp)) }
+                                IconButton(onClick = { onDelete(idx) }, enabled = pages.size > 1, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(15.dp)) }
+                                IconButton(onClick = { onMoveRight(idx) }, enabled = idx < pages.lastIndex, modifier = Modifier.size(26.dp)) { Icon(Icons.Default.ChevronRight, contentDescription = "Move Right", modifier = Modifier.size(16.dp)) }
                             }
                         }
                     }
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
-        }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
     )
 }
 
@@ -1325,11 +1368,7 @@ private fun ChangeTemplateDialog(
                 }
             }
         },
-        confirmButton = {
-            Button(onClick = { onApply(tpl, color) }) { Text("Apply") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        confirmButton = { Button(onClick = { onApply(tpl, color) }) { Text("Apply") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }

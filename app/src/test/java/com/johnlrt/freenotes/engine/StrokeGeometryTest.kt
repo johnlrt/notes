@@ -48,4 +48,48 @@ class StrokeGeometryTest {
         assertEquals(4, StrokeGeometry.snapToShape(pts, ShapeKind.TRIANGLE).size)
         assertEquals(5, StrokeGeometry.snapToShape(pts, ShapeKind.ARROW).size)
     }
+
+    @Test
+    fun buildRibbonOutlineGeneratesLeftAndRightEdges() {
+        val pts = (0..10).map { i ->
+            StrokePoint(i * 15f, 100f + i * 2f, pressure = 0.3f + (i * 0.06f), timeOffsetMs = i * 8L)
+        }
+        val stroke = Stroke(toolType = ToolType.FOUNTAIN_PEN, baseWidth = 6f, points = pts)
+        val outline = StrokeGeometry.buildRibbonOutline(stroke)
+        assertTrue(outline != null)
+        assertEquals(pts.size, outline!!.leftEdge.size)
+        assertEquals(pts.size, outline.rightEdge.size)
+        assertTrue(outline.startCapRadius > 0f)
+        assertTrue(outline.endCapRadius > 0f)
+        // Left and right edges should be separated across the stroke width
+        val midIdx = pts.size / 2
+        val dy = kotlin.math.abs(outline.leftEdge[midIdx].second - outline.rightEdge[midIdx].second)
+        assertTrue("Expected ribbon thickness > 1px, got $dy", dy > 1f)
+    }
+
+    @Test
+    fun snapPointToRulerProjectsNearEdgeAndLeavesFarPointUnchanged() {
+        // Horizontal ruler centered at (500, 300), halfThickness=38 -> top edge at y=262, bottom at y=338
+        val (sx, sy) = StrokeGeometry.snapPointToRuler(
+            px = 450f,
+            py = 250f,
+            rulerCx = 500f,
+            rulerCy = 300f,
+            rulerAngleDeg = 0f,
+            rulerHalfThickness = 38f,
+            snapThreshold = 36f
+        )
+        assertEquals(450f, sx, 1e-2f)
+        assertEquals(260f, sy, 1e-2f) // 300 - 38 - 2
+
+        val (fx, fy) = StrokeGeometry.snapPointToRuler(
+            px = 450f,
+            py = 100f,
+            rulerCx = 500f,
+            rulerCy = 300f,
+            rulerAngleDeg = 0f
+        )
+        assertEquals(450f, fx, 1e-3f)
+        assertEquals(100f, fy, 1e-3f)
+    }
 }

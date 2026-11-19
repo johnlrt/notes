@@ -23,16 +23,24 @@ data class RibbonSegment(
 )
 
 /**
- * Pure-Kotlin stroke geometry & shape recognition engine inspired by `Clipper2NativeLib`.
- * Computes pressure-sensitive widths, art-pen nib contrast, pencil grain alpha, and
- * auto-snapped geometric shapes.
+ * Closed polygon outline (left edge forward + right edge backward) for smooth
+ * hardware-accelerated filled ink rendering without segment-joint artifacts.
+ */
+data class RibbonOutline(
+    val leftEdge: List<Pair<Float, Float>>,
+    val rightEdge: List<Pair<Float, Float>>,
+    val startCapCenter: Pair<Float, Float>,
+    val startCapRadius: Float,
+    val endCapCenter: Pair<Float, Float>,
+    val endCapRadius: Float
+)
+
+/**
+ * Pure-Kotlin stroke geometry, polygonal ink ribbon, ruler snapping, and shape recognition engine
+ * inspired by Freenotes' `Clipper2NativeLib`.
  */
 object StrokeGeometry {
 
-    /**
-     * Computes the effective stroke width at a given point based on tool type,
-     * stylus pressure, velocity, and optional art-pen nib angle.
-     */
     fun computeWidth(
         stroke: Stroke,
         prev: StrokePoint?,
@@ -48,20 +56,19 @@ object StrokeGeometry {
             ToolType.BALLPOINT, ToolType.HIGHLIGHTER, ToolType.SHAPE, ToolType.LASER -> base
 
             ToolType.FOUNTAIN_PEN -> {
-                val pressureFactor = (1f - sens) + sens * (0.45f + 1.05f * p)
+                val pressureFactor = (1f - sens) + sens * (0.42f + 1.12f * p)
                 val velocityFactor = if (prev != null) {
                     val dt = (curr.timeOffsetMs - prev.timeOffsetMs).coerceAtLeast(1L)
                     val dist = hypot((curr.x - prev.x).toDouble(), (curr.y - prev.y).toDouble()).toFloat()
                     val speed = dist / dt
-                    (1.1f - (speed * 0.14f)).coerceIn(0.68f, 1.12f)
+                    (1.12f - (speed * 0.15f)).coerceIn(0.65f, 1.14f)
                 } else 1f
-                // Subtle entry/exit taper like a real fountain nib
                 val taper = when {
-                    totalCount > 6 && index < 2 -> 0.72f + 0.14f * index
-                    totalCount > 6 && index > totalCount - 3 -> 0.72f + 0.14f * (totalCount - 1 - index)
+                    totalCount > 6 && index < 2 -> 0.65f + 0.17f * index
+                    totalCount > 6 && index > totalCount - 3 -> 0.65f + 0.17f * (totalCount - 1 - index)
                     else -> 1f
                 }
-                (base * pressureFactor * velocityFactor * taper).coerceIn(base * 0.35f, base * 1.85f)
+                (base * pressureFactor * velocityFactor * taper).coerceIn(base * 0.32f, base * 1.9f)
             }
 
             ToolType.ART_PEN -> {
@@ -70,9 +77,9 @@ object StrokeGeometry {
                     atan2((curr.y - prev.y).toDouble(), (curr.x - prev.x).toDouble())
                 } else 0.0
                 val projection = abs(sin(strokeAngle - angleRad)).toFloat()
-                val nibFactor = 0.35f + 1.25f * projection
+                val nibFactor = 0.32f + 1.32f * projection
                 val pressureFactor = (1f - sens * 0.5f) + (sens * 0.5f) * p
-                (base * nibFactor * pressureFactor).coerceIn(base * 0.3f, base * 2.0f)
+                (base * nibFactor * pressureFactor).coerceIn(base * 0.28f, base * 2.05f)
             }
 
             ToolType.PENCIL -> {
@@ -84,9 +91,6 @@ object StrokeGeometry {
         }
     }
 
-    /**
-     * Computes per-segment alpha (Pencil varies opacity with pressure; Highlighter stays translucent).
-     */
     fun computeAlpha(stroke: Stroke, curr: StrokePoint): Float {
         return when (stroke.toolType) {
             ToolType.PENCIL -> {
@@ -99,8 +103,73 @@ object StrokeGeometry {
     }
 
     /**
-     * Builds smoothed Catmull-Rom / quadratic-midpoint ribbon segments for rendering.
+     * Subdivides raw points with quadratic midpoint smoothing and computes a closed
+     * variable-width ribbon outline for buttery-smooth calligraphic ink rendering.
      */
+    fun buildRibbonOutline(stroke: Stroke): RibbonOutline? {
+        val raw = stroke.points
+        if (raw.size < 2) return null
+
+        // Light midpoint smoothing pass so corners are round and organic
+        val pts = ArrayList<StrokePoint>(raw.size)
+        pts.add(raw.first())
+        for (i in 1 until raw.lastIndex) {
+            val prev = raw[i - 1]
+            val curr = raw[i]
+            val next = raw[i + 1]
+            pts.add(
+                curr.copy(
+                    x = prev.x * 0.2f + curr.x * 0.6f + next.x * 0.2f,
+                    y = prev.y * 0.2f + curr.y * 0.6f + next.y * 0.2f
+                )
+            )
+        }
+        pts.add(raw.last())
+
+        val left = ArrayList<Pair<Float, Float>>(pts.size)
+        val right = ArrayList<Pair<Float, Float>>(pts.size)
+
+        var prevWidth = computeWidth(stroke, null, pts[0], 0, pts.size)
+        val widths = FloatArray(pts.size)
+        widths[0] = prevWidth
+        for (i in 1 until pts.size) {
+            val target = computeWidth(stroke, pts[i - 1], pts[i], i, pts.size)
+            prevWidth = prevWidth * 0.55f + target * 0.45f
+            widths[i] = prevWidth
+        }
+
+        var lastNx = 0f
+        var lastNy = 1f
+
+        for (i in pts.indices) {
+            val pPrev = pts[(i - 1).coerceAtLeast(0)]
+            val pNext = pts[(i + 1).coerceAtMost(pts.lastIndex)]
+            val dx = pNext.x - pPrev.x
+            val dy = pNext.y - pPrev.y
+            val len = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            val (nx, ny) = if (len > 1e-4f) {
+                (-dy / len) to (dx / len)
+            } else {
+                lastNx to lastNy
+            }
+            lastNx = nx
+            lastNy = ny
+
+            val halfW = widths[i] * 0.5f
+            left.add((pts[i].x + nx * halfW) to (pts[i].y + ny * halfW))
+            right.add((pts[i].x - nx * halfW) to (pts[i].y - ny * halfW))
+        }
+
+        return RibbonOutline(
+            leftEdge = left,
+            rightEdge = right,
+            startCapCenter = pts.first().x to pts.first().y,
+            startCapRadius = widths.first() * 0.5f,
+            endCapCenter = pts.last().x to pts.last().y,
+            endCapRadius = widths.last() * 0.5f
+        )
+    }
+
     fun buildSegments(stroke: Stroke): List<RibbonSegment> {
         val pts = stroke.points
         if (pts.size < 2) return emptyList()
@@ -112,7 +181,6 @@ object StrokeGeometry {
             val p0 = pts[i - 1]
             val p1 = pts[i]
             val targetWidth = computeWidth(stroke, p0, p1, i, pts.size)
-            // Smooth width transitions to avoid staircase artifacts
             val smoothWidth = prevWidth * 0.6f + targetWidth * 0.4f
             prevWidth = smoothWidth
 
@@ -131,8 +199,43 @@ object StrokeGeometry {
     }
 
     /**
-     * Snaps a freehand stroke into a clean geometric shape (Line, Rectangle, Ellipse, Triangle, Arrow).
+     * If a stylus point is within [snapThreshold] of the top or bottom edge of the on-canvas ruler
+     * centered at `(rulerCx, rulerCy)` rotated by [rulerAngleDeg] with [rulerHalfThickness],
+     * projects the point cleanly onto that ruler edge!
      */
+    fun snapPointToRuler(
+        px: Float,
+        py: Float,
+        rulerCx: Float,
+        rulerCy: Float,
+        rulerAngleDeg: Float,
+        rulerHalfThickness: Float = 38f,
+        snapThreshold: Float = 36f
+    ): Pair<Float, Float> {
+        val rad = rulerAngleDeg * PI / 180.0
+        val cosA = cos(rad).toFloat()
+        val sinA = sin(rad).toFloat()
+
+        // Transform point into ruler-local coordinates
+        val dx = px - rulerCx
+        val dy = py - rulerCy
+        val localX = dx * cosA + dy * sinA
+        val localY = -dx * sinA + dy * cosA
+
+        val distTop = abs(localY - (-rulerHalfThickness))
+        val distBottom = abs(localY - rulerHalfThickness)
+
+        val snappedLocalY = when {
+            distTop <= snapThreshold && distTop <= distBottom -> -rulerHalfThickness - 2f
+            distBottom <= snapThreshold -> rulerHalfThickness + 2f
+            else -> return px to py
+        }
+
+        val worldX = rulerCx + localX * cosA - snappedLocalY * sinA
+        val worldY = rulerCy + localX * sinA + snappedLocalY * cosA
+        return worldX to worldY
+    }
+
     fun snapToShape(points: List<StrokePoint>, kind: ShapeKind = ShapeKind.AUTO): List<StrokePoint> {
         if (points.size < 2) return points
         val first = points.first()
@@ -167,7 +270,6 @@ object StrokeGeometry {
             if (!isClosed && directDist > 12f && pathLen / directDist < 1.22f) {
                 ShapeKind.LINE
             } else if (isClosed) {
-                // Distinguish ellipse vs rectangle by measuring average distance to box corners vs center
                 val cx = (minX + maxX) / 2f
                 val cy = (minY + maxY) / 2f
                 val rx = boxW / 2f

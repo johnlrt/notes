@@ -1,5 +1,8 @@
 package com.johnlrt.freenotes.engine
 
+import com.johnlrt.freenotes.data.HyperlinkItem
+import com.johnlrt.freenotes.data.ImageItem
+import com.johnlrt.freenotes.data.StickerItem
 import com.johnlrt.freenotes.data.Stroke
 import com.johnlrt.freenotes.data.StrokePoint
 import com.johnlrt.freenotes.data.TapeItem
@@ -11,7 +14,7 @@ import kotlin.math.min
 
 /**
  * Geometry hit-testing for Whole-Stroke Eraser, Partial/Pixel Eraser (stroke splitting),
- * Freehand Lasso polygon selection, and Active Recall Tape toggling.
+ * Freehand Lasso polygon selection, Active Recall Tape, TextBoxes, Images, Stickers, and Hyperlinks.
  */
 object HitTestEngine {
 
@@ -35,9 +38,6 @@ object HitTestEngine {
         return hypot((px - projX).toDouble(), (py - projY).toDouble()).toFloat()
     }
 
-    /**
-     * Returns true if the eraser circle `(cx, cy, radius)` intersects the given stroke.
-     */
     fun hitTestStroke(stroke: Stroke, cx: Float, cy: Float, radius: Float): Boolean {
         val pts = stroke.points
         if (pts.isEmpty()) return false
@@ -47,7 +47,6 @@ object HitTestEngine {
             return hypot((cx - pts[0].x).toDouble(), (cy - pts[0].y).toDouble()) <= threshold
         }
 
-        // Fast bounding-box reject
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
@@ -69,10 +68,6 @@ object HitTestEngine {
         return false
     }
 
-    /**
-     * Partial/Pixel eraser: splits a stroke into surviving sub-strokes by removing points
-     * that fall inside the eraser circle `(cx, cy, radius)`.
-     */
     fun splitStrokeByEraser(stroke: Stroke, cx: Float, cy: Float, radius: Float): List<Stroke> {
         if (!hitTestStroke(stroke, cx, cy, radius)) return listOf(stroke)
 
@@ -103,9 +98,6 @@ object HitTestEngine {
         }
     }
 
-    /**
-     * Ray-casting point-in-polygon check for freehand Lasso selection.
-     */
     fun isPointInPolygon(px: Float, py: Float, polygon: List<StrokePoint>): Boolean {
         if (polygon.size < 3) return false
         var inside = false
@@ -123,9 +115,6 @@ object HitTestEngine {
         return inside
     }
 
-    /**
-     * Returns true if at least half of a stroke's points fall inside the Lasso polygon.
-     */
     fun isStrokeInLasso(stroke: Stroke, lassoPolygon: List<StrokePoint>): Boolean {
         if (stroke.points.isEmpty() || lassoPolygon.size < 3) return false
         var hits = 0
@@ -137,17 +126,11 @@ object HitTestEngine {
         return hits * 2 >= stroke.points.size
     }
 
-    /**
-     * Hit-tests an Active Recall Tape strip for tap-to-reveal / tap-to-cover toggling.
-     */
     fun hitTestTape(tape: TapeItem, x: Float, y: Float): Boolean {
         val d = distancePointToSegment(x, y, tape.startX, tape.startY, tape.endX, tape.endY)
         return d <= max(tape.thickness * 0.6f, 20f)
     }
 
-    /**
-     * Hit-tests a TextBox bounding area.
-     */
     fun hitTestTextBox(box: TextBoxItem, x: Float, y: Float): Boolean {
         val lines = max(1, box.text.count { it == '\n' } + 1)
         val estimatedHeight = max(64f, lines * box.fontSizeSp * 1.6f + 24f)
@@ -155,9 +138,20 @@ object HitTestEngine {
             y >= box.y - 8f && y <= box.y + estimatedHeight + 8f
     }
 
-    /**
-     * Computes axis-aligned bounding box `(minX, minY, maxX, maxY)` of a set of strokes.
-     */
+    fun hitTestImage(img: ImageItem, x: Float, y: Float): Boolean {
+        return x >= img.x && x <= img.x + img.width && y >= img.y && y <= img.y + img.height
+    }
+
+    fun hitTestSticker(sticker: StickerItem, x: Float, y: Float): Boolean {
+        return x >= sticker.x && x <= sticker.x + sticker.width &&
+            y >= sticker.y && y <= sticker.y + sticker.height
+    }
+
+    fun hitTestHyperlink(link: HyperlinkItem, x: Float, y: Float): Boolean {
+        val estWidth = max(120f, link.label.length * 14f + 48f)
+        return x >= link.x && x <= link.x + estWidth && y >= link.y && y <= link.y + 44f
+    }
+
     fun boundingBoxOfStrokes(strokes: List<Stroke>): FloatArray? {
         if (strokes.isEmpty()) return null
         var minX = Float.MAX_VALUE

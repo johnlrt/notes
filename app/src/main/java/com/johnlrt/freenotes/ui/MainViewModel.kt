@@ -2,13 +2,19 @@ package com.johnlrt.freenotes.ui
 
 import android.app.Application
 import android.net.Uri
+import androidx.compose.ui.geometry.Rect
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.johnlrt.freenotes.data.AudioRecorderManager
+import com.johnlrt.freenotes.data.BookmarkItem
 import com.johnlrt.freenotes.data.EraserMode
 import com.johnlrt.freenotes.data.FavoriteToolPreset
+import com.johnlrt.freenotes.data.FlashcardItem
 import com.johnlrt.freenotes.data.Folder
 import com.johnlrt.freenotes.data.HighlighterStyle
+import com.johnlrt.freenotes.data.HyperlinkItem
+import com.johnlrt.freenotes.data.ImageCropper
+import com.johnlrt.freenotes.data.ImageItem
 import com.johnlrt.freenotes.data.Layer
 import com.johnlrt.freenotes.data.NotePage
 import com.johnlrt.freenotes.data.Notebook
@@ -17,15 +23,21 @@ import com.johnlrt.freenotes.data.PageOrientation
 import com.johnlrt.freenotes.data.PaperColor
 import com.johnlrt.freenotes.data.PaperTemplate
 import com.johnlrt.freenotes.data.PdfEngine
+import com.johnlrt.freenotes.data.ScrollDirection
 import com.johnlrt.freenotes.data.ShapeKind
+import com.johnlrt.freenotes.data.StickerItem
 import com.johnlrt.freenotes.data.Stroke
 import com.johnlrt.freenotes.data.StrokePoint
 import com.johnlrt.freenotes.data.TapeItem
 import com.johnlrt.freenotes.data.TextBoxItem
 import com.johnlrt.freenotes.data.ToolType
 import com.johnlrt.freenotes.data.WorkspaceIndex
+import com.johnlrt.freenotes.engine.FlashcardScheduler
+import com.johnlrt.freenotes.engine.HandwritingRecognizer
 import com.johnlrt.freenotes.engine.HitTestEngine
+import com.johnlrt.freenotes.engine.ReviewRating
 import com.johnlrt.freenotes.engine.StrokeGeometry
+import com.johnlrt.freenotes.ui.editor.StickerTemplate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,14 +69,16 @@ data class ToolConfig(
     val tapeThickness: Float = 38f,
     val penOpacity: Float = 1f,
     val highlighterOpacity: Float = 0.35f,
-    val stability: Float = 0.5f, // 0.5 == Freenotes optparam1130_best.cfg (mincutoff=16)
+    val stability: Float = 0.5f,
     val pressureSensitivity: Float = 0.72f,
     val artNibAngleDeg: Float = 35f,
     val highlighterStyle: HighlighterStyle = HighlighterStyle.SOLID,
     val highlighterStraightLine: Boolean = true,
     val eraserMode: EraserMode = EraserMode.WHOLE_STROKE,
     val eraseHighlighterOnly: Boolean = false,
-    val shapeKind: ShapeKind = ShapeKind.AUTO
+    val shapeKind: ShapeKind = ShapeKind.AUTO,
+    val shapeFilled: Boolean = false,
+    val shapeBorderDashed: Boolean = false
 ) {
     val activeColorArgb: Long
         get() = when (activeTool) {
@@ -88,18 +102,26 @@ data class EditorUiState(
     val currentPageIndex: Int = 0,
     val activeLayerId: String = "layer_default",
     val toolConfig: ToolConfig = ToolConfig(),
+    val scrollDirection: ScrollDirection = ScrollDirection.VERTICAL_CONTINUOUS,
     val stylusOnlyMode: Boolean = false,
     val zoomLocked: Boolean = false,
+    val darkPdfInvert: Boolean = false,
+    val showRuler: Boolean = false,
+    val showZoomWindow: Boolean = false,
+    val zoomRect: Rect = Rect(120f, 220f, 620f, 400f),
     val splitScreenDualPage: Boolean = false,
     val showStickyFavoritesBar: Boolean = true,
     val selectedStrokeIds: Set<String> = emptySet(),
+    val selectedImageId: String? = null,
     val allTapesRevealed: Boolean = false,
     val isRecordingAudio: Boolean = false,
     val playingRecordingId: String? = null,
     val audioPlaybackSpeed: Float = 1.0f,
+    val pipVideoUri: Uri? = null,
     val pomodoroSecondsLeft: Int = 25 * 60,
     val pomodoroRunning: Boolean = false,
     val showPomodoroWidget: Boolean = false,
+    val isRecognizingHandwriting: Boolean = false,
     val statusMessage: String? = null
 )
 
@@ -107,6 +129,7 @@ data class AppUiState(
     val notebooks: List<Notebook> = emptyList(),
     val folders: List<Folder> = emptyList(),
     val favoriteTools: List<FavoriteToolPreset> = emptyList(),
+    val customColors: List<Long> = emptyList(),
     val librarySection: LibrarySection = LibrarySection.ALL_NOTES,
     val selectedFolderId: String? = null,
     val searchQuery: String = "",
@@ -128,7 +151,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(AppUiState())
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
 
-    // Per-page undo/redo stacks (up to 80 snapshots per page)
     private val undoStacks = mutableMapOf<String, ArrayDeque<NotePage>>()
     private val redoStacks = mutableMapOf<String, ArrayDeque<NotePage>>()
 
@@ -143,7 +165,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     notebooks = notebooks,
                     folders = workspace.folders,
-                    favoriteTools = workspace.favoriteTools
+                    favoriteTools = workspace.favoriteTools,
+                    customColors = workspace.customColors
                 )
             }
         }
@@ -152,9 +175,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // region Library Actions
 
     fun selectLibrarySection(section: LibrarySection, folderId: String? = null) {
-        _uiState.update {
-            it.copy(librarySection = section, selectedFolderId = folderId)
-        }
+        _uiState.update { it.copy(librarySection = section, selectedFolderId = folderId) }
     }
 
     fun updateSearchQuery(query: String) {
@@ -165,14 +186,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(isGridView = !it.isGridView) }
     }
 
-    fun createFolder(name: String, parentId: String? = null, colorArgb: Long = 0xFF4F46E5) {
+    fun createFolder(name: String, parentId: String? = null, colorArgb: Long = 0xFF2563EB) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
         val currentFolders = _uiState.value.folders
         if (repo.folderDepth(parentId, currentFolders) >= 5) return
         val folder = Folder(name = trimmed, parentId = parentId, colorArgb = colorArgb)
-        val updated = currentFolders + folder
-        _uiState.update { it.copy(folders = updated) }
+        _uiState.update { it.copy(folders = currentFolders + folder) }
         persistWorkspace()
     }
 
@@ -193,16 +213,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             coverAccentArgb = coverAccentArgb,
             isInfiniteCanvas = isInfiniteCanvas,
             pages = listOf(
-                NotePage(
-                    template = template,
-                    paperColor = paperColor,
-                    orientation = orientation
-                )
+                NotePage(template = template, paperColor = paperColor, orientation = orientation)
             )
         )
-        _uiState.update { state ->
-            state.copy(notebooks = listOf(notebook) + state.notebooks)
-        }
+        _uiState.update { state -> state.copy(notebooks = listOf(notebook) + state.notebooks) }
         viewModelScope.launch { repo.saveNotebook(notebook) }
         openNotebook(notebook.id)
     }
@@ -217,13 +231,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     displayName.removeSuffix(".pdf"),
                     folderId
                 )
-                _uiState.update { state ->
-                    state.copy(notebooks = listOf(notebook) + state.notebooks)
-                }
+                _uiState.update { state -> state.copy(notebooks = listOf(notebook) + state.notebooks) }
                 repo.saveNotebook(notebook)
                 openNotebook(notebook.id)
             }.onFailure { err ->
                 showStatus("PDF import failed: ${err.localizedMessage}")
+            }
+        }
+    }
+
+    fun importBackup(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val notebook = PdfEngine.importNotebookBackup(getApplication(), uri)
+                _uiState.update { state -> state.copy(notebooks = listOf(notebook) + state.notebooks) }
+                repo.saveNotebook(notebook)
+                openNotebook(notebook.id)
+                showStatus("Restored backup: ${notebook.title}")
+            }.onFailure { err ->
+                showStatus("Backup restore failed: ${err.localizedMessage}")
             }
         }
     }
@@ -244,21 +270,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteNotebookPermanently(notebookId: String) {
-        _uiState.update { state ->
-            state.copy(notebooks = state.notebooks.filterNot { it.id == notebookId })
-        }
+        _uiState.update { state -> state.copy(notebooks = state.notebooks.filterNot { it.id == notebookId }) }
         viewModelScope.launch { repo.deleteNotebookPermanently(notebookId) }
-    }
-
-    fun renameNotebook(notebookId: String, newTitle: String) {
-        val trimmed = newTitle.trim()
-        if (trimmed.isEmpty()) return
-        updateNotebookById(notebookId) { it.copy(title = trimmed) }
     }
 
     // endregion
 
-    // region Editor Tabs & Navigation
+    // region Tabs, Pages, Scroll, Zoom Window, Ruler
 
     fun openNotebook(notebookId: String) {
         val nb = _uiState.value.notebooks.find { it.id == notebookId } ?: return
@@ -275,30 +293,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     activeNotebookId = notebookId,
                     currentPageIndex = 0,
                     activeLayerId = firstLayerId,
-                    selectedStrokeIds = emptySet()
+                    selectedStrokeIds = emptySet(),
+                    selectedImageId = null
                 )
             )
         }
     }
 
     fun closeEditorToLibrary() {
-        _uiState.update { it.copy(editor = it.editor.copy(activeNotebookId = null, selectedStrokeIds = emptySet())) }
+        _uiState.update {
+            it.copy(editor = it.editor.copy(activeNotebookId = null, selectedStrokeIds = emptySet(), selectedImageId = null))
+        }
     }
 
     fun closeNotebookTab(notebookId: String) {
         _uiState.update { state ->
             val remaining = state.editor.openNotebookIds.filterNot { it == notebookId }
-            val nextActive = if (state.editor.activeNotebookId == notebookId) {
-                remaining.lastOrNull()
-            } else {
-                state.editor.activeNotebookId
-            }
+            val nextActive = if (state.editor.activeNotebookId == notebookId) remaining.lastOrNull() else state.editor.activeNotebookId
             state.copy(
                 editor = state.editor.copy(
                     openNotebookIds = remaining,
                     activeNotebookId = nextActive,
                     currentPageIndex = 0,
-                    selectedStrokeIds = emptySet()
+                    selectedStrokeIds = emptySet(),
+                    selectedImageId = null
                 )
             )
         }
@@ -313,16 +331,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 editor = it.editor.copy(
                     currentPageIndex = clamped,
                     activeLayerId = layerId,
-                    selectedStrokeIds = emptySet()
+                    selectedStrokeIds = emptySet(),
+                    selectedImageId = null
                 )
             )
         }
     }
 
-    fun addPage(
-        template: PaperTemplate? = null,
-        paperColor: PaperColor? = null
-    ) {
+    fun addPage(template: PaperTemplate? = null, paperColor: PaperColor? = null) {
         val nb = _uiState.value.activeNotebook ?: return
         val ref = _uiState.value.activePage ?: nb.pages.lastOrNull() ?: NotePage()
         val newPage = NotePage(
@@ -369,20 +385,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun toggleScrollDirection() {
+        _uiState.update { state ->
+            val next = if (state.editor.scrollDirection == ScrollDirection.VERTICAL_CONTINUOUS) {
+                ScrollDirection.HORIZONTAL_PAGING
+            } else {
+                ScrollDirection.VERTICAL_CONTINUOUS
+            }
+            state.copy(editor = state.editor.copy(scrollDirection = next))
+        }
+    }
+
+    fun toggleDarkPdfInvert() {
+        _uiState.update { it.copy(editor = it.editor.copy(darkPdfInvert = !it.editor.darkPdfInvert)) }
+    }
+
+    fun toggleRuler() {
+        _uiState.update { it.copy(editor = it.editor.copy(showRuler = !it.editor.showRuler)) }
+    }
+
+    fun toggleZoomWindow() {
+        _uiState.update { it.copy(editor = it.editor.copy(showZoomWindow = !it.editor.showZoomWindow)) }
+    }
+
+    fun advanceZoomBoxRight() {
+        val page = _uiState.value.activePage ?: return
+        val pageW = page.orientation.widthPx
+        val pageH = page.orientation.heightPx
+        _uiState.update { state ->
+            val r = state.editor.zoomRect
+            val step = r.width * 0.72f
+            val nextRect = if (r.right + step <= pageW - 40f) {
+                r.translate(step, 0f)
+            } else {
+                val nextTop = (r.top + r.height * 0.85f).coerceAtMost(pageH - r.height - 40f)
+                Rect(80f, nextTop, 80f + r.width, nextTop + r.height)
+            }
+            state.copy(editor = state.editor.copy(zoomRect = nextRect))
+        }
+    }
+
+    fun stepZoomBoxLeft() {
+        _uiState.update { state ->
+            val r = state.editor.zoomRect
+            val newLeft = (r.left - r.width * 0.5f).coerceAtLeast(40f)
+            state.copy(editor = state.editor.copy(zoomRect = Rect(newLeft, r.top, newLeft + r.width, r.bottom)))
+        }
+    }
+
+    fun zoomBoxNewLine() {
+        val page = _uiState.value.activePage ?: return
+        val pageH = page.orientation.heightPx
+        _uiState.update { state ->
+            val r = state.editor.zoomRect
+            val nextTop = (r.top + r.height * 0.85f).coerceAtMost(pageH - r.height - 40f)
+            state.copy(editor = state.editor.copy(zoomRect = Rect(80f, nextTop, 80f + r.width, nextTop + r.height)))
+        }
+    }
+
     // endregion
 
-    // region Tool Configuration & Favorites
+    // region Tool Config & Favorites
 
     fun updateToolConfig(transform: (ToolConfig) -> ToolConfig) {
         _uiState.update { state ->
+            val nextCfg = transform(state.editor.toolConfig)
             state.copy(
                 editor = state.editor.copy(
-                    toolConfig = transform(state.editor.toolConfig),
-                    selectedStrokeIds = if (transform(state.editor.toolConfig).activeTool != ToolType.LASSO) {
-                        emptySet()
-                    } else {
-                        state.editor.selectedStrokeIds
-                    }
+                    toolConfig = nextCfg,
+                    selectedStrokeIds = if (nextCfg.activeTool != ToolType.LASSO) emptySet() else state.editor.selectedStrokeIds
                 )
             )
         }
@@ -390,6 +461,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectTool(tool: ToolType) {
         updateToolConfig { it.copy(activeTool = tool) }
+    }
+
+    fun saveCustomColor(argb: Long) {
+        _uiState.update { state ->
+            val updated = (listOf(argb) + state.customColors.filterNot { it == argb }).take(16)
+            state.copy(customColors = updated)
+        }
+        persistWorkspace()
     }
 
     fun applyFavoritePreset(preset: FavoriteToolPreset) {
@@ -418,7 +497,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addCurrentToolToFavorites() {
-        val cfg = _uiState.value.toolConfig()
+        val cfg = _uiState.value.editor.toolConfig
         val preset = FavoriteToolPreset(
             label = cfg.activeTool.name.lowercase().replaceFirstChar { it.uppercase() },
             toolType = cfg.activeTool,
@@ -428,11 +507,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             highlighterStyle = cfg.highlighterStyle
         )
         _uiState.update { it.copy(favoriteTools = (it.favoriteTools + preset).takeLast(14)) }
-        persistWorkspace()
-    }
-
-    fun removeFavoritePreset(id: String) {
-        _uiState.update { it.copy(favoriteTools = it.favoriteTools.filterNot { f -> f.id == id }) }
         persistWorkspace()
     }
 
@@ -454,7 +528,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // endregion
 
-    // region Drawing, Eraser, Lasso, Tape, Text, Layers
+    // region Drawing, Eraser, Lasso, ML Kit OCR, Tape, Text, Images, Stickers, Hyperlinks, Layers
+
+    fun commitStrokeOnPage(pageIndex: Int, rawPoints: List<StrokePoint>, toolOverride: ToolType? = null) {
+        if (pageIndex != _uiState.value.editor.currentPageIndex) {
+            selectPage(pageIndex)
+        }
+        commitStroke(rawPoints, toolOverride)
+    }
 
     fun commitStroke(rawPoints: List<StrokePoint>, toolOverride: ToolType? = null) {
         if (rawPoints.size < 2) return
@@ -465,18 +546,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val cfg = _uiState.value.toolConfig()
+        val cfg = _uiState.value.editor.toolConfig
         val effectiveTool = toolOverride ?: cfg.activeTool
 
         if (effectiveTool == ToolType.TAPE) {
-            val start = rawPoints.first()
-            val end = rawPoints.last()
             val tape = TapeItem(
                 layerId = _uiState.value.editor.activeLayerId,
-                startX = start.x,
-                startY = start.y,
-                endX = end.x,
-                endY = end.y,
+                startX = rawPoints.first().x,
+                startY = rawPoints.first().y,
+                endX = rawPoints.last().x,
+                endY = rawPoints.last().y,
                 thickness = cfg.tapeThickness,
                 colorArgb = cfg.tapeColorArgb,
                 isRevealed = false
@@ -501,15 +580,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             nibAngleDeg = cfg.artNibAngleDeg,
             highlighterStyle = cfg.highlighterStyle,
             isStraightLine = effectiveTool == ToolType.HIGHLIGHTER && cfg.highlighterStraightLine,
+            isFilledShape = effectiveTool == ToolType.SHAPE && cfg.shapeFilled,
+            fillColorArgb = if (effectiveTool == ToolType.SHAPE && cfg.shapeFilled) cfg.penColorArgb else null,
+            borderDashed = effectiveTool == ToolType.SHAPE && cfg.shapeBorderDashed,
             points = finalPoints
         )
 
         mutateCurrentPage(recordUndo = true) { p -> p.copy(strokes = p.strokes + stroke) }
     }
 
+    fun eraseAtOnPage(pageIndex: Int, x: Float, y: Float, recordUndoOnFirstHit: Boolean) {
+        if (pageIndex != _uiState.value.editor.currentPageIndex) {
+            selectPage(pageIndex)
+        }
+        eraseAt(x, y, recordUndoOnFirstHit)
+    }
+
     fun eraseAt(x: Float, y: Float, recordUndoOnFirstHit: Boolean) {
         val page = _uiState.value.activePage ?: return
-        val cfg = _uiState.value.toolConfig()
+        val cfg = _uiState.value.editor.toolConfig
         val lockedLayerIds = page.layers.filter { it.isLocked || !it.isVisible }.map { it.id }.toSet()
 
         var changed = false
@@ -534,18 +623,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 EraserMode.PARTIAL_PIXEL -> {
                     val split = HitTestEngine.splitStrokeByEraser(stroke, x, y, cfg.eraserRadius)
-                    if (split.size != 1 || split.first() != stroke) {
-                        changed = true
-                    }
+                    if (split.size != 1 || split.first() != stroke) changed = true
                     updatedStrokes.addAll(split)
                 }
             }
         }
 
         val updatedTapes = page.tapes.filterNot { tape ->
-            val hit = tape.layerId !in lockedLayerIds &&
-                !cfg.eraseHighlighterOnly &&
-                HitTestEngine.hitTestTape(tape, x, y)
+            val hit = tape.layerId !in lockedLayerIds && !cfg.eraseHighlighterOnly && HitTestEngine.hitTestTape(tape, x, y)
             if (hit) changed = true
             hit
         }
@@ -573,9 +658,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             page.copy(
                 strokes = page.strokes.map { stroke ->
                     if (stroke.id in selected) {
-                        stroke.copy(
-                            points = stroke.points.map { pt -> pt.copy(x = pt.x + dx, y = pt.y + dy) }
-                        )
+                        stroke.copy(points = stroke.points.map { pt -> pt.copy(x = pt.x + dx, y = pt.y + dy) })
                     } else stroke
                 }
             )
@@ -586,11 +669,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val selected = _uiState.value.editor.selectedStrokeIds
         if (selected.isEmpty()) return
         mutateCurrentPage(recordUndo = true) { page ->
-            page.copy(
-                strokes = page.strokes.map { stroke ->
-                    if (stroke.id in selected) stroke.copy(colorArgb = colorArgb) else stroke
-                }
-            )
+            page.copy(strokes = page.strokes.map { if (it.id in selected) it.copy(colorArgb = colorArgb) else it })
         }
     }
 
@@ -602,10 +681,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val clones = page.strokes.filter { it.id in selected }.map { stroke ->
                 val cloneId = UUID.randomUUID().toString()
                 newIds.add(cloneId)
-                stroke.copy(
-                    id = cloneId,
-                    points = stroke.points.map { it.copy(x = it.x + 28f, y = it.y + 28f) }
-                )
+                stroke.copy(id = cloneId, points = stroke.points.map { it.copy(x = it.x + 28f, y = it.y + 28f) })
             }
             page.copy(strokes = page.strokes + clones)
         }
@@ -621,19 +697,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(editor = it.editor.copy(selectedStrokeIds = emptySet())) }
     }
 
+    /**
+     * Converts Lasso-selected handwritten strokes into an editable [TextBoxItem] using
+     * Google ML Kit Digital Ink Recognition (matching Freenotes' Handwriting-to-Text).
+     */
+    fun convertSelectedStrokesToText() {
+        val page = _uiState.value.activePage ?: return
+        val selectedIds = _uiState.value.editor.selectedStrokeIds
+        val strokes = page.strokes.filter { it.id in selectedIds }
+        if (strokes.isEmpty()) return
+        val box = HitTestEngine.boundingBoxOfStrokes(strokes) ?: return
+
+        _uiState.update { it.copy(editor = it.editor.copy(isRecognizingHandwriting = true)) }
+        viewModelScope.launch {
+            val result = HandwritingRecognizer.recognize(strokes)
+            _uiState.update { it.copy(editor = it.editor.copy(isRecognizingHandwriting = false)) }
+            result.onSuccess { recognized ->
+                mutateCurrentPage(recordUndo = true) { p ->
+                    p.copy(
+                        strokes = p.strokes.filterNot { it.id in selectedIds },
+                        textBoxes = p.textBoxes + TextBoxItem(
+                            layerId = _uiState.value.editor.activeLayerId,
+                            x = box[0],
+                            y = box[1],
+                            width = (box[2] - box[0]).coerceAtLeast(240f),
+                            text = recognized,
+                            colorArgb = strokes.first().colorArgb
+                        )
+                    )
+                }
+                clearSelection()
+                showStatus("Converted handwriting → \"$recognized\"")
+            }.onFailure { err ->
+                showStatus("Handwriting OCR: ${err.localizedMessage ?: "model downloading"}")
+            }
+        }
+    }
+
     fun clearSelection() {
-        _uiState.update { it.copy(editor = it.editor.copy(selectedStrokeIds = emptySet())) }
+        _uiState.update { it.copy(editor = it.editor.copy(selectedStrokeIds = emptySet(), selectedImageId = null)) }
     }
 
     fun tryToggleTapeAt(x: Float, y: Float): Boolean {
         val page = _uiState.value.activePage ?: return false
         val target = page.tapes.lastOrNull { HitTestEngine.hitTestTape(it, x, y) } ?: return false
         mutateCurrentPage(recordUndo = false) { p ->
-            p.copy(
-                tapes = p.tapes.map { t ->
-                    if (t.id == target.id) t.copy(isRevealed = !t.isRevealed) else t
-                }
-            )
+            p.copy(tapes = p.tapes.map { if (it.id == target.id) it.copy(isRevealed = !it.isRevealed) else it })
         }
         return true
     }
@@ -649,20 +758,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun addOrUpdateTextBox(x: Float, y: Float, text: String, existingId: String? = null) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() && existingId != null) {
-            mutateCurrentPage(recordUndo = true) { p ->
-                p.copy(textBoxes = p.textBoxes.filterNot { it.id == existingId })
-            }
+            mutateCurrentPage(recordUndo = true) { p -> p.copy(textBoxes = p.textBoxes.filterNot { it.id == existingId }) }
             return
         }
         if (trimmed.isEmpty()) return
-        val color = _uiState.value.toolConfig().penColorArgb
+        val color = _uiState.value.editor.toolConfig.penColorArgb
         mutateCurrentPage(recordUndo = true) { page ->
             if (existingId != null) {
-                page.copy(
-                    textBoxes = page.textBoxes.map {
-                        if (it.id == existingId) it.copy(text = trimmed) else it
-                    }
-                )
+                page.copy(textBoxes = page.textBoxes.map { if (it.id == existingId) it.copy(text = trimmed) else it })
             } else {
                 page.copy(
                     textBoxes = page.textBoxes + TextBoxItem(
@@ -673,6 +776,165 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         colorArgb = color
                     )
                 )
+            }
+        }
+    }
+
+    // Images & Freehand/Rect Crop
+    fun insertImageFromUri(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val (file, dims) = ImageCropper.importImageToLocal(getApplication(), uri)
+                val aspect = dims.first.toFloat() / dims.second.coerceAtLeast(1)
+                val targetW = 420f
+                val targetH = (targetW / aspect).coerceIn(140f, 540f)
+                val item = ImageItem(
+                    layerId = _uiState.value.editor.activeLayerId,
+                    filePath = file.absolutePath,
+                    x = 180f,
+                    y = 240f,
+                    width = targetW,
+                    height = targetH
+                )
+                mutateCurrentPage(recordUndo = true) { p -> p.copy(images = p.images + item) }
+                _uiState.update { it.copy(editor = it.editor.copy(selectedImageId = item.id)) }
+                showStatus("Image added — tap image to crop or delete")
+            }.onFailure { err ->
+                showStatus("Image import failed: ${err.localizedMessage}")
+            }
+        }
+    }
+
+    fun selectImage(imageId: String?) {
+        _uiState.update { it.copy(editor = it.editor.copy(selectedImageId = imageId)) }
+    }
+
+    fun cropSelectedImageRect(l: Float, t: Float, r: Float, b: Float) {
+        val page = _uiState.value.activePage ?: return
+        val img = page.images.find { it.id == _uiState.value.editor.selectedImageId } ?: return
+        viewModelScope.launch {
+            runCatching {
+                val croppedFile = ImageCropper.cropRectangular(getApplication(), img.filePath, l, t, r, b)
+                mutateCurrentPage(recordUndo = true) { p ->
+                    p.copy(images = p.images.map { if (it.id == img.id) it.copy(filePath = croppedFile.absolutePath) else it })
+                }
+                showStatus("Image cropped")
+            }.onFailure { showStatus("Crop failed: ${it.localizedMessage}") }
+        }
+    }
+
+    fun cropSelectedImageFreehand(polygon: List<Pair<Float, Float>>) {
+        val page = _uiState.value.activePage ?: return
+        val img = page.images.find { it.id == _uiState.value.editor.selectedImageId } ?: return
+        viewModelScope.launch {
+            runCatching {
+                val croppedFile = ImageCropper.cropFreehand(getApplication(), img.filePath, polygon)
+                mutateCurrentPage(recordUndo = true) { p ->
+                    p.copy(images = p.images.map { if (it.id == img.id) it.copy(filePath = croppedFile.absolutePath) else it })
+                }
+                showStatus("Freehand crop applied")
+            }.onFailure { showStatus("Freehand crop failed: ${it.localizedMessage}") }
+        }
+    }
+
+    fun deleteSelectedImage() {
+        val imgId = _uiState.value.editor.selectedImageId ?: return
+        mutateCurrentPage(recordUndo = true) { p -> p.copy(images = p.images.filterNot { it.id == imgId }) }
+        _uiState.update { it.copy(editor = it.editor.copy(selectedImageId = null)) }
+    }
+
+    // Stickers
+    fun addSticker(tpl: StickerTemplate) {
+        val item = StickerItem(
+            layerId = _uiState.value.editor.activeLayerId,
+            label = tpl.label,
+            emoji = tpl.emoji,
+            x = 220f,
+            y = 260f,
+            width = 190f,
+            height = 76f,
+            bgColorArgb = tpl.bgArgb,
+            borderColorArgb = tpl.borderArgb,
+            textColorArgb = tpl.textArgb
+        )
+        mutateCurrentPage(recordUndo = true) { p -> p.copy(stickers = p.stickers + item) }
+    }
+
+    // Hyperlinks
+    fun addHyperlink(label: String, targetPageIndex: Int, x: Float = 240f, y: Float = 320f) {
+        val item = HyperlinkItem(
+            layerId = _uiState.value.editor.activeLayerId,
+            label = label.ifBlank { "→ Page ${targetPageIndex + 1}" },
+            targetPageIndex = targetPageIndex,
+            x = x,
+            y = y
+        )
+        mutateCurrentPage(recordUndo = true) { p -> p.copy(hyperlinks = p.hyperlinks + item) }
+    }
+
+    // Bookmarks
+    fun addBookmark(title: String) {
+        val nb = _uiState.value.activeNotebook ?: return
+        val bm = BookmarkItem(pageIndex = _uiState.value.editor.currentPageIndex, title = title)
+        updateNotebookById(nb.id) { it.copy(bookmarks = it.bookmarks + bm) }
+    }
+
+    fun deleteBookmark(id: String) {
+        val nb = _uiState.value.activeNotebook ?: return
+        updateNotebookById(nb.id) { it.copy(bookmarks = it.bookmarks.filterNot { b -> b.id == id }) }
+    }
+
+    // Flashcards
+    fun addFlashcard(front: String, back: String) {
+        val nb = _uiState.value.activeNotebook ?: return
+        updateNotebookById(nb.id) { it.copy(flashcards = it.flashcards + FlashcardItem(front = front, back = back)) }
+    }
+
+    fun rateFlashcard(cardId: String, rating: ReviewRating) {
+        val nb = _uiState.value.activeNotebook ?: return
+        updateNotebookById(nb.id) { notebook ->
+            notebook.copy(
+                flashcards = notebook.flashcards.map { c ->
+                    if (c.id == cardId) FlashcardScheduler.review(c, rating) else c
+                }
+            )
+        }
+    }
+
+    fun deleteFlashcard(cardId: String) {
+        val nb = _uiState.value.activeNotebook ?: return
+        updateNotebookById(nb.id) { it.copy(flashcards = it.flashcards.filterNot { c -> c.id == cardId }) }
+    }
+
+    // PiP Lecture Video
+    fun openPipVideo(uri: Uri) {
+        _uiState.update { it.copy(editor = it.editor.copy(pipVideoUri = uri)) }
+    }
+
+    fun closePipVideo() {
+        _uiState.update { it.copy(editor = it.editor.copy(pipVideoUri = null)) }
+    }
+
+    fun capturePipVideoFrame(positionMs: Long) {
+        val uri = _uiState.value.editor.pipVideoUri ?: return
+        viewModelScope.launch {
+            runCatching {
+                val (file, dims) = ImageCropper.captureVideoFrame(getApplication(), uri, positionMs)
+                val aspect = dims.first.toFloat() / dims.second.coerceAtLeast(1)
+                val w = 480f
+                val h = (w / aspect).coerceIn(180f, 400f)
+                val item = ImageItem(
+                    layerId = _uiState.value.editor.activeLayerId,
+                    filePath = file.absolutePath,
+                    x = 160f,
+                    y = 220f,
+                    width = w,
+                    height = h
+                )
+                mutateCurrentPage(recordUndo = true) { p -> p.copy(images = p.images + item) }
+                showStatus("Captured lecture video frame to page!")
+            }.onFailure { err ->
+                showStatus("Frame capture failed: ${err.localizedMessage}")
             }
         }
     }
@@ -709,7 +971,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 layers = p.layers.filterNot { it.id == layerId },
                 strokes = p.strokes.filterNot { it.layerId == layerId },
                 tapes = p.tapes.filterNot { it.layerId == layerId },
-                textBoxes = p.textBoxes.filterNot { it.layerId == layerId }
+                textBoxes = p.textBoxes.filterNot { it.layerId == layerId },
+                images = p.images.filterNot { it.layerId == layerId },
+                stickers = p.stickers.filterNot { it.layerId == layerId },
+                hyperlinks = p.hyperlinks.filterNot { it.layerId == layerId }
             )
         }
         val fallback = _uiState.value.activePage?.layers?.firstOrNull()?.id ?: "layer_default"
@@ -717,15 +982,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Undo / Redo
-    fun canUndo(): Boolean {
-        val pageId = _uiState.value.activePage?.id ?: return false
-        return !undoStacks[pageId].isNullOrEmpty()
-    }
-
-    fun canRedo(): Boolean {
-        val pageId = _uiState.value.activePage?.id ?: return false
-        return !redoStacks[pageId].isNullOrEmpty()
-    }
+    fun canUndo(): Boolean = !undoStacks[_uiState.value.activePage?.id].isNullOrEmpty()
+    fun canRedo(): Boolean = !redoStacks[_uiState.value.activePage?.id].isNullOrEmpty()
 
     fun undo() {
         val page = _uiState.value.activePage ?: return
@@ -747,7 +1005,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // endregion
 
-    // region Audio, Pomodoro & PDF Export
+    // region Audio, Pomodoro & Exports
 
     fun toggleAudioRecording() {
         val nb = _uiState.value.activeNotebook ?: return
@@ -800,12 +1058,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     delay(1000L)
                     _uiState.update { state ->
                         val next = (state.editor.pomodoroSecondsLeft - 1).coerceAtLeast(0)
-                        state.copy(
-                            editor = state.editor.copy(
-                                pomodoroSecondsLeft = next,
-                                pomodoroRunning = next > 0
-                            )
-                        )
+                        state.copy(editor = state.editor.copy(pomodoroSecondsLeft = next, pomodoroRunning = next > 0))
                     }
                 }
             }
@@ -819,16 +1072,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun exportActiveNotebookToPdf(onExported: (File) -> Unit) {
+    fun exportActiveNotebookToPdf(onExported: (File, String) -> Unit) {
         val nb = _uiState.value.activeNotebook ?: return
         viewModelScope.launch {
             runCatching {
                 val file = PdfEngine.exportNotebookToPdf(getApplication(), nb)
                 showStatus("Exported PDF: ${file.name}")
-                onExported(file)
-            }.onFailure { err ->
-                showStatus("Export failed: ${err.localizedMessage}")
-            }
+                onExported(file, "application/pdf")
+            }.onFailure { showStatus("PDF export failed: ${it.localizedMessage}") }
+        }
+    }
+
+    fun exportCurrentPageToPng(onExported: (File, String) -> Unit) {
+        val nb = _uiState.value.activeNotebook ?: return
+        val page = _uiState.value.activePage ?: return
+        viewModelScope.launch {
+            runCatching {
+                val file = PdfEngine.exportPageToPng(getApplication(), nb.title, page)
+                showStatus("Exported PNG: ${file.name}")
+                onExported(file, "image/png")
+            }.onFailure { showStatus("PNG export failed: ${it.localizedMessage}") }
+        }
+    }
+
+    fun exportActiveNotebookBackup(onExported: (File, String) -> Unit) {
+        val nb = _uiState.value.activeNotebook ?: return
+        viewModelScope.launch {
+            runCatching {
+                val file = PdfEngine.exportNotebookBackup(getApplication(), nb)
+                showStatus("Backup saved: ${file.name}")
+                onExported(file, "application/json")
+            }.onFailure { showStatus("Backup export failed: ${it.localizedMessage}") }
         }
     }
 
@@ -839,8 +1113,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // endregion
 
     // region Internal Helpers
-
-    private fun AppUiState.toolConfig(): ToolConfig = editor.toolConfig
 
     private fun showStatus(msg: String) {
         _uiState.update { it.copy(editor = it.editor.copy(statusMessage = msg)) }
@@ -895,7 +1167,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repo.saveWorkspace(
                 WorkspaceIndex(
                     folders = state.folders,
-                    favoriteTools = state.favoriteTools
+                    favoriteTools = state.favoriteTools,
+                    customColors = state.customColors
                 )
             )
         }
