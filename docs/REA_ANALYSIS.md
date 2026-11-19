@@ -40,3 +40,14 @@ And stroke test fixtures in `assets/ipad_stroke_fixtures/{pointy,round,round_pre
   - Zoom lock (`fl_zoom_lock.xml`) & Canvas orientation (`fragment_canvas_orientation.xml`)
   - Active Recall Tape tool, Lasso selection, Shape snapping, Text boxes, Images/Stickers, Laser pointer
   - Voice Notes (`activity_fd_voice_note.xml`) & Nested Folder File Manager (`activity_file_manager.xml`)
+
+
+## 5. Decoded `resources.arsc` Visual & Stylus Parity (`ai.note.notepad.memo.journal.freenote`)
+Extracted 1,382 colors and 3,868 strings directly from unencrypted `base.apk!/resources.arsc`:
+- **Exact Brand & UI Colors**:
+  - Light primary: `#FF047AFF` (`colorPrimary`, `colorBlue`), selection tint `#FFE9F3FF` (`colorShapeSelect`), background `#FFF5F5F5` (`colorPopupBg`), surface `#FFFFFFFF` (`colorBrushToolsBg`), canvas desk `#FFEAEAEA` (`colorSinglePageBg`), primary ink `#FF191A1A` (`colorIconPrimaryLight`), divider `#FFD6D6D6`.
+  - Dark primary: `#FF0A84FF`, background `#FF191A1A` (`common_ai_chat_bg_dark`), elevated surface `#FF272828` (`common_ai_chat_elevated_bg_dark`), surfaceVariant `#FF333434`, primary ink `#FFF4F5F5` (`colorIconPrimaryDark`).
+  - Paper template yellow: `#FFFFFEEA` (`colorTemplateYellow`).
+- **Exact Stylus Brand Profiles & Gestures**:
+  - Samsung S Pen (`samsungSpenTitle` — Long Press), Xiaomi Stylus / Focus Pen Pro (`xiaomiStylusMainKeyTitle`, `xiaomiStylusSecKeyTitle`, `xiaomiStylusTitle`), Huawei M-Pencil (`huaweiStylusTitle`), Honor Magic Pencil (`honorMagicPencilBrandTitle`), OPPO Pencil 2/3 (`oneKeyBrandTitle`), vivo Pencil / 2S (`vivoStylusMainKeyTitle`, `vivoStylusSecKeyTitle`), Lenovo Precision Pen (`lenovoLongPressTitle`).
+  - `pressureEraserTitle` (Pressure-Sensitive Eraser), `panGestureTitle` (3-finger swipe left = Undo, right = Redo), `tapGestureDescription` (2-finger tap = Undo, 3-finger tap = Redo), `fingerZoomCanvasTitle` (One-finger double-tap zoom), `canvasDarkModelText` (Smart Dark Themes).

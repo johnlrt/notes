@@ -241,6 +241,13 @@ private fun AppearanceSettingsPane(
     }
 
     SettingsToggleRow(
+        title = "Smart Dark Themes (Content Night Effect)",
+        subtitle = "Automatically adapts PDF and canvas contrast in Dark Mode",
+        checked = settings.smartDarkCanvas,
+        onCheckedChange = { v -> onUpdate { it.copy(smartDarkCanvas = v) } }
+    )
+
+    SettingsToggleRow(
         title = "Left-Handed UI Layout",
         subtitle = "Mirrors side panels and floating controls for left-handed writing",
         checked = settings.leftHandedUi,
@@ -253,23 +260,52 @@ private fun StylusSettingsPane(
     settings: AppSettings,
     onUpdate: ((AppSettings) -> AppSettings) -> Unit
 ) {
+    SectionHeader("Stylus Model / Brand Preset")
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        com.johnlrt.freenotes.data.StylusBrand.entries.chunked(2).forEach { rowItems ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowItems.forEach { brand ->
+                    FilterChip(
+                        selected = settings.stylusBrand == brand,
+                        onClick = { onUpdate { it.copy(stylusBrand = brand) } },
+                        label = { Text(brand.label) }
+                    )
+                }
+            }
+        }
+    }
+    Text(
+        "Active: ${settings.stylusBrand.label} — ${settings.stylusBrand.hint}",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary
+    )
+
+    HorizontalDivider()
+
     SettingsToggleRow(
-        title = "Stylus-Only Mode (Hardware Palm Rejection)",
-        subtitle = "Only active stylus (S Pen / Smart Pen / USI) writes; fingers smoothly pan & zoom",
+        title = "Palm Rejection (Stylus-Only Writing)",
+        subtitle = "Only active stylus writes; fingers smoothly pan & zoom the canvas",
         checked = settings.stylusOnlyMode,
         onCheckedChange = { v -> onUpdate { it.copy(stylusOnlyMode = v) } }
     )
 
     SettingsToggleRow(
+        title = "Pressure-Sensitive Eraser",
+        subtitle = "Press firmly with stylus while writing to temporarily activate the eraser, release to keep writing",
+        checked = settings.pressureSensitiveEraser,
+        onCheckedChange = { v -> onUpdate { it.copy(pressureSensitiveEraser = v) } }
+    )
+
+    SettingsToggleRow(
         title = "Stylus Hover Cursor Preview",
-        subtitle = "Shows a live nib ring when hovering the stylus above the screen",
+        subtitle = "Shows a live nib ring when hovering the stylus above the glass",
         checked = settings.showStylusHoverCursor,
         onCheckedChange = { v -> onUpdate { it.copy(showStylusHoverCursor = v) } }
     )
 
     HorizontalDivider()
 
-    SectionHeader("Stylus Primary Side-Button (S Pen / Smart Pen)")
+    SectionHeader("Main Button / Long Press Action")
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StylusButtonAction.entries.chunked(2).forEach { rowItems ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -284,7 +320,7 @@ private fun StylusSettingsPane(
         }
     }
 
-    SectionHeader("Stylus Secondary Button / Double-Tap")
+    SectionHeader("Secondary Button / Double-Tap Action")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
             StylusButtonAction.UNDO,
@@ -394,17 +430,31 @@ private fun GesturesAndPerformancePane(
     }
 
     SettingsToggleRow(
-        title = "Scribble-to-Erase Gesture",
+        title = "Scribble to Erase",
         subtitle = "Scratch back-and-forth over any ink stroke with a pen to erase it instantly",
         checked = settings.scribbleToEraseEnabled,
         onCheckedChange = { v -> onUpdate { it.copy(scribbleToEraseEnabled = v) } }
     )
 
     SettingsToggleRow(
-        title = "Multi-Finger Tap Undo / Redo",
-        subtitle = "2-finger tap = Undo, 3-finger tap = Redo directly on the canvas",
+        title = "2-Finger Tap Undo / 3-Finger Tap Redo",
+        subtitle = "2 finger tap to undo, 3 finger tap to redo directly on the canvas",
         checked = settings.multiFingerUndoRedoEnabled,
         onCheckedChange = { v -> onUpdate { it.copy(multiFingerUndoRedoEnabled = v) } }
+    )
+
+    SettingsToggleRow(
+        title = "3-Finger Swipe Undo / Redo",
+        subtitle = "3 finger swipe left to undo, 3 finger swipe right to redo",
+        checked = settings.threeFingerSwipeUndoRedo,
+        onCheckedChange = { v -> onUpdate { it.copy(threeFingerSwipeUndoRedo = v) } }
+    )
+
+    SettingsToggleRow(
+        title = "One-Finger Double-Tap Zoom",
+        subtitle = "When using Stylus-Only mode, double-tap with one finger to toggle zoom",
+        checked = settings.oneFingerDoubleTapZoom,
+        onCheckedChange = { v -> onUpdate { it.copy(oneFingerDoubleTapZoom = v) } }
     )
 }
 

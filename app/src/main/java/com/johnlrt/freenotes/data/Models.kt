@@ -51,9 +51,9 @@ enum class ScrollDirection(val label: String) {
 
 @Serializable
 enum class PaperColor(val argb: Long, val gridArgb: Long, val label: String) {
-    WHITE(0xFFFFFFFF, 0xFFE2E6EC, "White"),
-    CREAM(0xFFFDF8E8, 0xFFE6DCC0, "Cream"),
-    DARK(0xFF1C1C1E, 0xFF333338, "Dark")
+    WHITE(0xFFFFFFFF, 0xFFD6D6D6, "White"),
+    CREAM(0xFFFFFEEA, 0xFFE6DFC3, "Yellow Paper"),
+    DARK(0xFF191A1A, 0xFF333434, "Dark")
 }
 
 @Serializable
@@ -289,13 +289,25 @@ enum class AppAccentPalette(
     val primaryDarkArgb: Long,
     val containerDarkArgb: Long
 ) {
-    COBALT("Freenotes Blue", 0xFF2563EB, 0xFFDBEAFE, 0xFF60A5FA, 0xFF1E3A8A),
+    COBALT("Freenotes Blue", 0xFF047AFF, 0xFFE9F3FF, 0xFF0A84FF, 0xFF1A355B),
     INDIGO("Indigo Studio", 0xFF4F46E5, 0xFFE0E7FF, 0xFF818CF8, 0xFF312E81),
     EMERALD("Botanical Mint", 0xFF059669, 0xFFD1FAE5, 0xFF34D399, 0xFF065F46),
     ROSE("Sakura Rose", 0xFFE11D48, 0xFFFFE4E6, 0xFFFB7185, 0xFF881337),
     AMBER("Warm Amber", 0xFFD97706, 0xFFFEF3C7, 0xFFFBBF24, 0xFF78350F),
     VIOLET("Royal Violet", 0xFF7C3AED, 0xFFEDE9FE, 0xFFA78BFA, 0xFF4C1D95),
-    GRAPHITE("Minimal Graphite", 0xFF334155, 0xFFE2E8F0, 0xFFCBD5E1, 0xFF1E293B)
+    GRAPHITE("Minimal Graphite", 0xFF2E302F, 0xFFEDEBEB, 0xFFCBD5E1, 0xFF2C2C2E)
+}
+
+@Serializable
+enum class StylusBrand(val label: String, val hint: String) {
+    SAMSUNG_SPEN("Samsung S Pen", "Long-press side button"),
+    XIAOMI_FOCUS("Xiaomi Stylus / Focus Pen", "Main & secondary buttons / double-tap"),
+    HUAWEI_MPENCIL("Huawei M-Pencil", "Double-tap barrel"),
+    HONOR_MAGIC("Honor Magic Pencil", "Double-tap barrel"),
+    OPPO_PENCIL("OPPO Pencil 2 / 3", "Double-tap / one-key"),
+    VIVO_PENCIL("vivo Pencil / 2S", "Main & secondary buttons / double-tap"),
+    LENOVO_PEN("Lenovo Precision Pen", "Long-press side button"),
+    GENERIC_USI("Generic / USI Stylus", "Standard Android stylus")
 }
 
 @Serializable
@@ -332,25 +344,30 @@ enum class WritingPosture(val label: String) {
 
 @Serializable
 data class AppSettings(
-    // Appearance & Style
+    // Personalized Themes (Freenotes 3.29.0 Display and Theme)
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val accentPalette: AppAccentPalette = AppAccentPalette.COBALT,
+    val smartDarkCanvas: Boolean = false,
     val toolbarPosition: ToolbarPosition = ToolbarPosition.TOP,
     val leftHandedUi: Boolean = false,
-    // Stylus & Pencil Support
+    // Stylus & Pencil Support (Samsung / Xiaomi / Huawei / Honor / OPPO / vivo / Lenovo)
+    val stylusBrand: StylusBrand = StylusBrand.SAMSUNG_SPEN,
     val stylusOnlyMode: Boolean = false,
     val stylusPrimaryButtonAction: StylusButtonAction = StylusButtonAction.HOLD_ERASER,
     val stylusSecondaryButtonAction: StylusButtonAction = StylusButtonAction.UNDO,
+    val pressureSensitiveEraser: Boolean = false,
     val pressureCurve: PressureCurve = PressureCurve.NORMAL,
     val showStylusHoverCursor: Boolean = true,
     val writingPosture: WritingPosture = WritingPosture.RIGHT_NORMAL,
-    // Gestures, Canvas & 120Hz Performance
+    // Gesture Settings & 120Hz Performance
     val highRefreshRate120Hz: Boolean = true,
     val lowLatencyFrontBuffer: Boolean = true,
     val holdToShapeEnabled: Boolean = true,
     val holdToShapeDelayMs: Long = 420L,
     val scribbleToEraseEnabled: Boolean = true,
-    val multiFingerUndoRedoEnabled: Boolean = true
+    val multiFingerUndoRedoEnabled: Boolean = true,
+    val threeFingerSwipeUndoRedo: Boolean = true,
+    val oneFingerDoubleTapZoom: Boolean = true
 )
 
 @Serializable

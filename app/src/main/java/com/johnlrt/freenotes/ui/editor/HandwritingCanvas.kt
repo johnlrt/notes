@@ -274,7 +274,7 @@ fun HandwritingCanvas(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(if (isInfiniteCanvas) Color(activePage.paperColor.argb) else Color(0xFFE5E9F0))
+            .background(if (isInfiniteCanvas) Color(activePage.paperColor.argb) else Color(0xFFEAEAEA))
             .onSizeChanged { viewportSize = it }
             .pointerInteropFilter { event ->
                 if (readOnly) {
@@ -292,7 +292,7 @@ fun HandwritingCanvas(
                 val isStylus = primaryToolType == MotionEvent.TOOL_TYPE_STYLUS ||
                     primaryToolType == MotionEvent.TOOL_TYPE_ERASER
 
-                // Track 2-finger tap (Undo) & 3-finger tap (Redo)
+                // Track 2-finger tap (Undo), 3-finger tap (Redo), and 3-finger swipe left/right
                 if (pointerCount >= 2) {
                     if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
                         if (multiMaxPointers < 2) {
@@ -322,14 +322,18 @@ fun HandwritingCanvas(
                 }
 
                 if ((isPanZooming || multiMaxPointers >= 2) && event.actionMasked == MotionEvent.ACTION_UP) {
-                    if (appSettings.multiFingerUndoRedoEnabled) {
-                        val dt = event.eventTime - multiDownTimeMs
-                        val moved = hypot((event.x - multiStartMidX).toDouble(), (event.y - multiStartMidY).toDouble()).toFloat()
-                        if (multiMaxPointers == 2 && dt in 1L..250L && moved < 32f) {
-                            onTwoFingerUndo()
-                        } else if (multiMaxPointers >= 3 && dt in 1L..290L && moved < 38f) {
-                            onThreeFingerRedo()
-                        }
+                    val dt = event.eventTime - multiDownTimeMs
+                    val dxMulti = event.x - multiStartMidX
+                    val dyMulti = event.y - multiStartMidY
+                    val moved = hypot(dxMulti.toDouble(), dyMulti.toDouble()).toFloat()
+                    if (appSettings.multiFingerUndoRedoEnabled && multiMaxPointers == 2 && dt in 1L..250L && moved < 32f) {
+                        onTwoFingerUndo()
+                    } else if (appSettings.multiFingerUndoRedoEnabled && multiMaxPointers >= 3 && dt in 1L..290L && moved < 38f) {
+                        onThreeFingerRedo()
+                    } else if (appSettings.threeFingerSwipeUndoRedo && multiMaxPointers >= 3 && dt in 1L..550L &&
+                        kotlin.math.abs(dxMulti) > 95f && kotlin.math.abs(dxMulti) > kotlin.math.abs(dyMulti) * 1.5f
+                    ) {
+                        if (dxMulti < 0f) onTwoFingerUndo() else onThreeFingerRedo()
                     }
                     multiMaxPointers = 0
                     isPanZooming = false
@@ -368,8 +372,9 @@ fun HandwritingCanvas(
                     }
                 }
 
+                val pressureEraserActive = appSettings.pressureSensitiveEraser && isStylus && event.pressure >= 0.94f
                 val effectiveTool = when {
-                    primaryToolType == MotionEvent.TOOL_TYPE_ERASER -> ToolType.ERASER
+                    primaryToolType == MotionEvent.TOOL_TYPE_ERASER || pressureEraserActive -> ToolType.ERASER
                     isPrimaryBtn && appSettings.stylusPrimaryButtonAction == com.johnlrt.freenotes.data.StylusButtonAction.HOLD_ERASER -> ToolType.ERASER
                     isPrimaryBtn && appSettings.stylusPrimaryButtonAction == com.johnlrt.freenotes.data.StylusButtonAction.HOLD_LASSO -> ToolType.LASSO
                     isSecondaryBtn && appSettings.stylusSecondaryButtonAction == com.johnlrt.freenotes.data.StylusButtonAction.HOLD_ERASER -> ToolType.ERASER
