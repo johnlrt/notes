@@ -260,7 +260,7 @@ class LowLatencyInkController {
                     pressureSensitivity = snap.pressureSensitivity,
                     points = combined
                 )
-                val segs = StrokeGeometry.buildRibbon(tempStroke)
+                val segs = StrokeGeometry.buildSegments(tempStroke)
                 strokePaint.color = snap.colorArgb.toInt()
                 strokePaint.strokeCap = Paint.Cap.ROUND
                 strokePaint.pathEffect = null
