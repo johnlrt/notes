@@ -47,7 +47,7 @@ class HitTestEngineTest {
 
     @Test
     fun imageStickerAndHyperlinkHitTestsWork() {
-        val img = ImageItem(fileName = "photo.png", x = 50f, y = 60f, width = 200f, height = 150f)
+        val img = ImageItem(filePath = "photo.png", x = 50f, y = 60f, width = 200f, height = 150f)
         assertTrue(HitTestEngine.hitTestImage(img, 100f, 120f))
         assertFalse(HitTestEngine.hitTestImage(img, 300f, 120f))
 

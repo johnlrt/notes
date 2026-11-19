@@ -59,11 +59,12 @@ class FlashcardAndSerializationTest {
                 Stroke(
                     toolType = ToolType.SHAPE,
                     points = listOf(StrokePoint(0f, 0f), StrokePoint(100f, 100f)),
+                    isFilledShape = true,
                     fillColorArgb = 0x332563EB,
-                    dashed = true
+                    borderDashed = true
                 )
             ),
-            stickers = listOf(StickerItem(label = "💡", x = 120f, y = 140f)),
+            stickers = listOf(StickerItem(label = "Key", emoji = "💡", x = 120f, y = 140f)),
             hyperlinks = listOf(HyperlinkItem(label = "See Page 2", targetPageIndex = 1, x = 80f, y = 220f))
         )
         val notebook = Notebook(
@@ -78,9 +79,11 @@ class FlashcardAndSerializationTest {
 
         assertEquals(notebook.title, decoded.title)
         assertEquals(2, decoded.pages.size)
-        assertEquals(true, decoded.pages[0].strokes[0].dashed)
+        assertEquals(true, decoded.pages[0].strokes[0].borderDashed)
+        assertEquals(true, decoded.pages[0].strokes[0].isFilledShape)
         assertEquals(0x332563EB, decoded.pages[0].strokes[0].fillColorArgb)
-        assertEquals("💡", decoded.pages[0].stickers[0].label)
+        assertEquals("Key", decoded.pages[0].stickers[0].label)
+        assertEquals("💡", decoded.pages[0].stickers[0].emoji)
         assertEquals(1, decoded.pages[0].hyperlinks[0].targetPageIndex)
         assertEquals("Intro", decoded.bookmarks[0].title)
         assertEquals("Q1", decoded.flashcards[0].front)
