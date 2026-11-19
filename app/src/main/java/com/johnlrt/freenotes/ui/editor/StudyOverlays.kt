@@ -76,24 +76,55 @@ data class StickerTemplate(
     val emoji: String,
     val bgArgb: Long,
     val borderArgb: Long,
-    val textArgb: Long
+    val textArgb: Long,
+    val category: String = "Study"
 )
 
 val BuiltInStickers = listOf(
-    StickerTemplate("IMPORTANT", "⭐", 0xFFFEF3C7, 0xFFF59E0B, 0xFF92400E),
-    StickerTemplate("EXAM KEY", "🎯", 0xFFFEE2E2, 0xFFEF4444, 0xFF991B1B),
-    StickerTemplate("FORMULA", "∑", 0xFFDBEAFE, 0xFF2563EB, 0xFF1E3A8A),
-    StickerTemplate("REVIEW", "📌", 0xFFDCFCE7, 0xFF16A34A, 0xFF14532D),
-    StickerTemplate("QUESTION", "❓", 0xFFF3E8FF, 0xFF9333EA, 0xFF581C87),
-    StickerTemplate("IDEA", "💡", 0xFFFEF9C3, 0xFFEAB308, 0xFF713F12),
-    StickerTemplate("DONE", "✅", 0xFFCCFBF1, 0xFF0D9488, 0xFF134E4A),
-    StickerTemplate("DEADLINE", "⏰", 0xFFFFEDD5, 0xFFEA580C, 0xFF7C2D12),
-    StickerTemplate("DEFINITION", "📖", 0xFFE0E7FF, 0xFF4F46E5, 0xFF312E81),
-    StickerTemplate("WARNING", "⚠️", 0xFFFECDD3, 0xFFE11D48, 0xFF881337)
+    // Study & Exam Pack
+    StickerTemplate("IMPORTANT", "⭐", 0xFFFEF3C7, 0xFFF59E0B, 0xFF92400E, "Study"),
+    StickerTemplate("EXAM KEY", "🎯", 0xFFFEE2E2, 0xFFEF4444, 0xFF991B1B, "Study"),
+    StickerTemplate("REVIEW", "📌", 0xFFDCFCE7, 0xFF16A34A, 0xFF14532D, "Study"),
+    StickerTemplate("QUESTION", "❓", 0xFFF3E8FF, 0xFF9333EA, 0xFF581C87, "Study"),
+    StickerTemplate("DEFINITION", "📖", 0xFFE0E7FF, 0xFF4F46E5, 0xFF312E81, "Study"),
+    StickerTemplate("KEY POINT", "🔑", 0xFFFEF9C3, 0xFFCA8A04, 0xFF713F12, "Study"),
+    StickerTemplate("SUMMARY", "📝", 0xFFE0F2FE, 0xFF0284C7, 0xFF0C4A6E, "Study"),
+    StickerTemplate("MEMORIZE", "🧠", 0xFFFCE7F3, 0xFFDB2777, 0xFF831843, "Study"),
+    StickerTemplate("WARNING", "⚠️", 0xFFFECDD3, 0xFFE11D48, 0xFF881337, "Study"),
+    // Planner & Productivity Pack
+    StickerTemplate("TO-DO", "☐", 0xFFDBEAFE, 0xFF2563EB, 0xFF1E3A8A, "Planner"),
+    StickerTemplate("DONE", "✅", 0xFFCCFBF1, 0xFF0D9488, 0xFF134E4A, "Planner"),
+    StickerTemplate("DEADLINE", "⏰", 0xFFFFEDD5, 0xFFEA580C, 0xFF7C2D12, "Planner"),
+    StickerTemplate("URGENT", "🔥", 0xFFFEE2E2, 0xFFDC2626, 0xFF991B1B, "Planner"),
+    StickerTemplate("MEETING", "📅", 0xFFE0E7FF, 0xFF4F46E5, 0xFF312E81, "Planner"),
+    StickerTemplate("GOAL", "🏆", 0xFFFEF3C7, 0xFFD97706, 0xFF78350F, "Planner"),
+    StickerTemplate("HABIT", "🔁", 0xFFDCFCE7, 0xFF16A34A, 0xFF14532D, "Planner"),
+    StickerTemplate("IN PROGRESS", "⏳", 0xFFF3E8FF, 0xFF7C3AED, 0xFF4C1D95, "Planner"),
+    StickerTemplate("PRIORITY #1", "🚀", 0xFFFCE7F3, 0xFFDB2777, 0xFF831843, "Planner"),
+    // Pastel Callouts & Sticky Notes Pack
+    StickerTemplate("IDEA", "💡", 0xFFFEF9C3, 0xFFEAB308, 0xFF713F12, "Callouts"),
+    StickerTemplate("NOTE", "🗒️", 0xFFFEF3C7, 0xFFF59E0B, 0xFF78350F, "Callouts"),
+    StickerTemplate("TIP", "✨", 0xFFECFCCB, 0xFF65A30D, 0xFF365314, "Callouts"),
+    StickerTemplate("QUOTE", "❝", 0xFFF1F5F9, 0xFF64748B, 0xFF1E293B, "Callouts"),
+    StickerTemplate("CHECK", "✔️", 0xFFD1FAE5, 0xFF059669, 0xFF064E3B, "Callouts"),
+    StickerTemplate("LINK", "🔗", 0xFFDBEAFE, 0xFF2563EB, 0xFF1E3A8A, "Callouts"),
+    StickerTemplate("EXAMPLE", "👉", 0xFFEDE9FE, 0xFF7C3AED, 0xFF4C1D95, "Callouts"),
+    StickerTemplate("REMINDER", "🔔", 0xFFFFE4E6, 0xFFE11D48, 0xFF881337, "Callouts"),
+    StickerTemplate("GREAT!", "🎉", 0xFFFFF7ED, 0xFFEA580C, 0xFF7C2D12, "Callouts"),
+    // Academic & STEM Pack
+    StickerTemplate("FORMULA", "∑", 0xFFDBEAFE, 0xFF2563EB, 0xFF1E3A8A, "STEM"),
+    StickerTemplate("THEOREM", "⊢", 0xFFE0E7FF, 0xFF4338CA, 0xFF312E81, "STEM"),
+    StickerTemplate("PROOF", "∎", 0xFFF1F5F9, 0xFF334155, 0xFF0F172A, "STEM"),
+    StickerTemplate("PHYSICS", "⚛️", 0xFFE0F2FE, 0xFF0284C7, 0xFF0C4A6E, "STEM"),
+    StickerTemplate("CHEM", "🧪", 0xFFDCFCE7, 0xFF15803D, 0xFF14532D, "STEM"),
+    StickerTemplate("BIOLOGY", "🧬", 0xFFCCFBF1, 0xFF0F766E, 0xFF134E4A, "STEM"),
+    StickerTemplate("MEDICINE", "🩺", 0xFFFEE2E2, 0xFFDC2626, 0xFF7F1D1D, "STEM"),
+    StickerTemplate("CODE", "</>", 0xFFF3E8FF, 0xFF7E22CE, 0xFF581C87, "STEM"),
+    StickerTemplate("DATA", "📊", 0xFFFFEDD5, 0xFFEA580C, 0xFF7C2D12, "STEM")
 )
 
 /**
- * Freenotes Stickers Picker & Custom Sticker creator dialog.
+ * Freenotes Categorized Stickers Picker & Custom Sticker creator dialog.
  */
 @Composable
 fun StickersDialog(
@@ -101,12 +132,15 @@ fun StickersDialog(
     onDismiss: () -> Unit
 ) {
     var customText by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("Study") }
+    val categories = listOf("Study", "Planner", "Callouts", "STEM")
+    val filtered = remember(selectedCategory) { BuiltInStickers.filter { it.category == selectedCategory } }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Stickers & Study Badges", fontWeight = FontWeight.Bold) },
+        title = { Text("Stickers & Study Packs", fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -134,14 +168,34 @@ fun StickersDialog(
                     ) { Text("Add") }
                 }
 
+                // Category selector pills
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    categories.forEach { cat ->
+                        val active = cat == selectedCategory
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.clickable { selectedCategory = cat }
+                        ) {
+                            Text(
+                                cat,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (active) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(4.dp),
-                    modifier = Modifier.height(270.dp)
+                    modifier = Modifier.height(280.dp)
                 ) {
-                    items(BuiltInStickers) { st ->
+                    items(filtered) { st ->
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))

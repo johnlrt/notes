@@ -225,7 +225,12 @@ object PdfEngine {
         // Images
         for (img in page.images.filter { it.layerId in visibleLayerIds }) {
             val bmp = BitmapFactory.decodeFile(img.filePath) ?: continue
+            canvas.save()
+            if (img.rotationDeg != 0f) {
+                canvas.rotate(img.rotationDeg, img.x + img.width * 0.5f, img.y + img.height * 0.5f)
+            }
             canvas.drawBitmap(bmp, null, RectF(img.x, img.y, img.x + img.width, img.y + img.height), null)
+            canvas.restore()
             bmp.recycle()
         }
 
@@ -247,6 +252,10 @@ object PdfEngine {
         }
         for (st in page.stickers.filter { it.layerId in visibleLayerIds }) {
             val rect = RectF(st.x, st.y, st.x + st.width, st.y + st.height)
+            canvas.save()
+            if (st.rotationDeg != 0f) {
+                canvas.rotate(st.rotationDeg, rect.centerX(), rect.centerY())
+            }
             stickerBg.style = Paint.Style.FILL
             stickerBg.color = st.bgColorArgb.toInt()
             canvas.drawRoundRect(rect, 18f, 18f, stickerBg)
@@ -257,6 +266,7 @@ object PdfEngine {
             stickerText.color = st.textColorArgb.toInt()
             val content = listOf(st.emoji, st.label).filter { it.isNotBlank() }.joinToString(" ")
             canvas.drawText(content, rect.centerX(), rect.centerY() + 9f, stickerText)
+            canvas.restore()
         }
 
         // Text boxes

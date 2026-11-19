@@ -285,6 +285,9 @@ fun EditorScreen(
                                 zoomRect = editor.zoomRect,
                                 selectedStrokeIds = editor.selectedStrokeIds,
                                 selectedImageId = editor.selectedImageId,
+                                isInfiniteCanvas = notebook.isInfiniteCanvas,
+                                holdToShapeEnabled = editor.holdToShapeEnabled,
+                                selectedStickerId = editor.selectedStickerId,
                                 modifier = Modifier.weight(1f).fillMaxHeight(),
                                 onCommitStroke = viewModel::commitStrokeOnPage,
                                 onEraseAt = viewModel::eraseAtOnPage,
@@ -293,6 +296,11 @@ fun EditorScreen(
                                 onTapTape = viewModel::tryToggleTapeAt,
                                 onTapHyperlink = viewModel::selectPage,
                                 onSelectImage = viewModel::selectImage,
+                                onSelectSticker = viewModel::selectSticker,
+                                onTransformImage = viewModel::transformImage,
+                                onTransformSticker = viewModel::transformSticker,
+                                onTwoFingerUndo = viewModel::undo,
+                                onThreeFingerRedo = viewModel::redo,
                                 onRequestTextEdit = { x, y, id, text -> pendingTextEdit = TextEditRequest(x, y, id, text) },
                                 onRequestHyperlinkCreate = { x, y -> pendingHyperlinkPos = x to y }
                             )
@@ -337,6 +345,9 @@ fun EditorScreen(
                             zoomRect = editor.zoomRect,
                             selectedStrokeIds = editor.selectedStrokeIds,
                             selectedImageId = editor.selectedImageId,
+                            isInfiniteCanvas = notebook.isInfiniteCanvas,
+                            holdToShapeEnabled = editor.holdToShapeEnabled,
+                            selectedStickerId = editor.selectedStickerId,
                             modifier = Modifier.fillMaxSize(),
                             onCommitStroke = viewModel::commitStrokeOnPage,
                             onEraseAt = viewModel::eraseAtOnPage,
@@ -345,6 +356,11 @@ fun EditorScreen(
                             onTapTape = viewModel::tryToggleTapeAt,
                             onTapHyperlink = viewModel::selectPage,
                             onSelectImage = viewModel::selectImage,
+                            onSelectSticker = viewModel::selectSticker,
+                            onTransformImage = viewModel::transformImage,
+                            onTransformSticker = viewModel::transformSticker,
+                            onTwoFingerUndo = viewModel::undo,
+                            onThreeFingerRedo = viewModel::redo,
                             onRequestTextEdit = { x, y, id, text -> pendingTextEdit = TextEditRequest(x, y, id, text) },
                             onRequestHyperlinkCreate = { x, y -> pendingHyperlinkPos = x to y }
                         )
@@ -375,7 +391,7 @@ fun EditorScreen(
                         )
                     }
 
-                    // Selected Image Action Pill (Freehand/Rect Crop & Delete)
+                    // Selected Image Action Pill (Freehand/Rect Crop, Duplicate & Delete)
                     if (selectedImage != null) {
                         Surface(
                             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
@@ -391,12 +407,43 @@ fun EditorScreen(
                                 TextButton(onClick = { showImageCropDialog = true }) {
                                     Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Crop (Freehand/Rect)")
+                                    Text("Crop")
+                                }
+                                IconButton(onClick = viewModel::duplicateSelectedImage, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate Image", modifier = Modifier.size(18.dp))
                                 }
                                 IconButton(onClick = viewModel::deleteSelectedImage, modifier = Modifier.size(30.dp)) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete Image", tint = MaterialTheme.colorScheme.error)
                                 }
                                 IconButton(onClick = { viewModel.selectImage(null) }, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Done")
+                                }
+                            }
+                        }
+                    }
+
+                    // Selected Sticker Action Pill (Duplicate & Delete)
+                    if (editor.selectedStickerId != null) {
+                        Surface(
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
+                            shape = RoundedCornerShape(22.dp),
+                            shadowElevation = 6.dp,
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TextButton(onClick = viewModel::duplicateSelectedSticker) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Duplicate")
+                                }
+                                IconButton(onClick = viewModel::deleteSelectedSticker, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Sticker", tint = MaterialTheme.colorScheme.error)
+                                }
+                                IconButton(onClick = { viewModel.selectSticker(null) }, modifier = Modifier.size(30.dp)) {
                                     Icon(Icons.Default.Close, contentDescription = "Done")
                                 }
                             }
@@ -780,6 +827,18 @@ private fun TopEditorBar(
                     Icon(Icons.Default.MoreVert, contentDescription = "More Options")
                 }
                 DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (editor.holdToShapeEnabled) "✓ Hold-to-Shape Auto-Snap" else "Hold-to-Shape Auto-Snap") },
+                        onClick = { viewModel.toggleHoldToShape(); showMoreMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (editor.scribbleToEraseEnabled) "✓ Scribble-to-Erase Gesture" else "Scribble-to-Erase Gesture") },
+                        onClick = { viewModel.toggleScribbleToErase(); showMoreMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (notebook.isInfiniteCanvas) "✓ Infinite Canvas Mode" else "Infinite Canvas Mode") },
+                        onClick = { viewModel.toggleInfiniteCanvas(); showMoreMenu = false }
+                    )
                     DropdownMenuItem(
                         text = { Text(if (editor.stylusOnlyMode) "✓ Stylus-Only Palm Rejection" else "Stylus-Only Palm Rejection") },
                         onClick = { viewModel.toggleStylusOnlyMode(); showMoreMenu = false }

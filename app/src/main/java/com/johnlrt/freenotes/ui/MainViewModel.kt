@@ -107,12 +107,15 @@ data class EditorUiState(
     val zoomLocked: Boolean = false,
     val darkPdfInvert: Boolean = false,
     val showRuler: Boolean = false,
+    val holdToShapeEnabled: Boolean = true,
+    val scribbleToEraseEnabled: Boolean = true,
     val showZoomWindow: Boolean = false,
     val zoomRect: Rect = Rect(120f, 220f, 620f, 400f),
     val splitScreenDualPage: Boolean = false,
     val showStickyFavoritesBar: Boolean = true,
     val selectedStrokeIds: Set<String> = emptySet(),
     val selectedImageId: String? = null,
+    val selectedStickerId: String? = null,
     val allTapesRevealed: Boolean = false,
     val isRecordingAudio: Boolean = false,
     val playingRecordingId: String? = null,
@@ -204,13 +207,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         paperColor: PaperColor,
         template: PaperTemplate,
         orientation: PageOrientation,
-        isInfiniteCanvas: Boolean
+        isInfiniteCanvas: Boolean,
+        coverPattern: com.johnlrt.freenotes.data.CoverPattern = com.johnlrt.freenotes.data.CoverPattern.CLASSIC_SPINE
     ) {
         val notebook = Notebook(
             title = title.trim().ifEmpty { "Untitled Notebook" },
             folderId = folderId,
             coverColorArgb = coverColorArgb,
             coverAccentArgb = coverAccentArgb,
+            coverPattern = coverPattern,
             isInfiniteCanvas = isInfiniteCanvas,
             pages = listOf(
                 NotePage(template = template, paperColor = paperColor, orientation = orientation)
@@ -549,6 +554,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val cfg = _uiState.value.editor.toolConfig
         val effectiveTool = toolOverride ?: cfg.activeTool
 
+        // Freenotes Scribble-to-Erase gesture in any pen mode
+        if (_uiState.value.editor.scribbleToEraseEnabled &&
+            effectiveTool in listOf(ToolType.FOUNTAIN_PEN, ToolType.BALLPOINT, ToolType.PENCIL, ToolType.ART_PEN) &&
+            StrokeGeometry.isScribbleGesture(rawPoints)
+        ) {
+            val box = StrokeGeometry.boundingBoxOfPoints(rawPoints)
+            if (box != null) {
+                val lockedLayerIds = page.layers.filter { it.isLocked || !it.isVisible }.map { it.id }.toSet()
+                val pad = 18f
+                val remaining = page.strokes.filterNot { s ->
+                    if (s.layerId in lockedLayerIds) false
+                    else s.points.any { p ->
+                        p.x in (box[0] - pad)..(box[2] + pad) && p.y in (box[1] - pad)..(box[3] + pad)
+                    }
+                }
+                val erasedCount = page.strokes.size - remaining.size
+                if (erasedCount > 0) {
+                    mutateCurrentPage(recordUndo = true) { p -> p.copy(strokes = remaining) }
+                    showStatus("Scribble erased $erasedCount stroke${if (erasedCount == 1) "" else "s"}")
+                    return
+                }
+            }
+        }
+
         if (effectiveTool == ToolType.TAPE) {
             val tape = TapeItem(
                 layerId = _uiState.value.editor.activeLayerId,
@@ -843,6 +872,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(editor = it.editor.copy(selectedImageId = null)) }
     }
 
+    fun duplicateSelectedImage() {
+        val imgId = _uiState.value.editor.selectedImageId ?: return
+        val page = _uiState.value.activePage ?: return
+        val img = page.images.find { it.id == imgId } ?: return
+        val copy = img.copy(id = UUID.randomUUID().toString(), x = img.x + 36f, y = img.y + 36f)
+        mutateCurrentPage(recordUndo = true) { p -> p.copy(images = p.images + copy) }
+        _uiState.update { it.copy(editor = it.editor.copy(selectedImageId = copy.id)) }
+    }
+
+    fun transformImage(
+        imageId: String,
+        dx: Float = 0f,
+        dy: Float = 0f,
+        newWidth: Float? = null,
+        newHeight: Float? = null,
+        newRotationDeg: Float? = null,
+        recordUndo: Boolean = false
+    ) {
+        mutateCurrentPage(recordUndo = recordUndo) { p ->
+            p.copy(
+                images = p.images.map { img ->
+                    if (img.id == imageId) {
+                        img.copy(
+                            x = img.x + dx,
+                            y = img.y + dy,
+                            width = (newWidth ?: img.width).coerceIn(60f, 2400f),
+                            height = (newHeight ?: img.height).coerceIn(60f, 2400f),
+                            rotationDeg = newRotationDeg ?: img.rotationDeg
+                        )
+                    } else img
+                }
+            )
+        }
+    }
+
     // Stickers
     fun addSticker(tpl: StickerTemplate) {
         val item = StickerItem(
@@ -858,6 +922,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             textColorArgb = tpl.textArgb
         )
         mutateCurrentPage(recordUndo = true) { p -> p.copy(stickers = p.stickers + item) }
+        _uiState.update { it.copy(editor = it.editor.copy(selectedStickerId = item.id, selectedImageId = null)) }
+    }
+
+    fun selectSticker(stickerId: String?) {
+        _uiState.update {
+            it.copy(
+                editor = it.editor.copy(
+                    selectedStickerId = stickerId,
+                    selectedImageId = if (stickerId != null) null else it.editor.selectedImageId
+                )
+            )
+        }
+    }
+
+    fun transformSticker(
+        stickerId: String,
+        dx: Float = 0f,
+        dy: Float = 0f,
+        newWidth: Float? = null,
+        newHeight: Float? = null,
+        newRotationDeg: Float? = null,
+        recordUndo: Boolean = false
+    ) {
+        mutateCurrentPage(recordUndo = recordUndo) { p ->
+            p.copy(
+                stickers = p.stickers.map { st ->
+                    if (st.id == stickerId) {
+                        st.copy(
+                            x = st.x + dx,
+                            y = st.y + dy,
+                            width = (newWidth ?: st.width).coerceIn(80f, 900f),
+                            height = (newHeight ?: st.height).coerceIn(48f, 600f),
+                            rotationDeg = newRotationDeg ?: st.rotationDeg
+                        )
+                    } else st
+                }
+            )
+        }
+    }
+
+    fun duplicateSelectedSticker() {
+        val stId = _uiState.value.editor.selectedStickerId ?: return
+        val page = _uiState.value.activePage ?: return
+        val st = page.stickers.find { it.id == stId } ?: return
+        val copy = st.copy(id = UUID.randomUUID().toString(), x = st.x + 32f, y = st.y + 32f)
+        mutateCurrentPage(recordUndo = true) { p -> p.copy(stickers = p.stickers + copy) }
+        _uiState.update { it.copy(editor = it.editor.copy(selectedStickerId = copy.id)) }
+    }
+
+    fun deleteSelectedSticker() {
+        val stId = _uiState.value.editor.selectedStickerId ?: return
+        mutateCurrentPage(recordUndo = true) { p -> p.copy(stickers = p.stickers.filterNot { it.id == stId }) }
+        _uiState.update { it.copy(editor = it.editor.copy(selectedStickerId = null)) }
+    }
+
+    fun toggleHoldToShape() {
+        _uiState.update { it.copy(editor = it.editor.copy(holdToShapeEnabled = !it.editor.holdToShapeEnabled)) }
+    }
+
+    fun toggleScribbleToErase() {
+        _uiState.update { it.copy(editor = it.editor.copy(scribbleToEraseEnabled = !it.editor.scribbleToEraseEnabled)) }
+    }
+
+    fun toggleInfiniteCanvas() {
+        val nb = _uiState.value.activeNotebook ?: return
+        updateNotebookById(nb.id) { it.copy(isInfiniteCanvas = !it.isInfiniteCanvas) }
     }
 
     // Hyperlinks

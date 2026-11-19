@@ -65,7 +65,23 @@ enum class PaperTemplate(val label: String) {
     DOTTED("Dotted"),
     CORNELL("Cornell"),
     PLANNER("To-Do Planner"),
-    MUSIC("Music Staff")
+    MUSIC("Music Staff"),
+    ISOMETRIC("Isometric 3D"),
+    HEXAGONAL("Hexagonal Chem"),
+    WEEKLY_PLANNER("Weekly Planner"),
+    MONTHLY_CALENDAR("Monthly Calendar"),
+    TWO_COLUMN("Two-Column Notes"),
+    STORYBOARD("Storyboard")
+}
+
+@Serializable
+enum class CoverPattern(val label: String) {
+    CLASSIC_SPINE("Classic Spine"),
+    MINIMAL_BAND("Minimal Band"),
+    GRID_BLUEPRINT("Blueprint Grid"),
+    LINEN_STRIPE("Linen Stripe"),
+    DUOTONE_ARCH("Duotone Arch"),
+    CORNER_BADGE("Corner Badge")
 }
 
 @Serializable
@@ -149,6 +165,7 @@ data class StickerItem(
     val y: Float,
     val width: Float = 150f,
     val height: Float = 120f,
+    val rotationDeg: Float = 0f,
     val bgColorArgb: Long = 0xFFFEF3C7,
     val borderColorArgb: Long = 0xFFF59E0B,
     val textColorArgb: Long = 0xFF78350F
@@ -225,6 +242,7 @@ data class Notebook(
     val folderId: String? = null,
     val coverColorArgb: Long = 0xFF2563EB,
     val coverAccentArgb: Long = 0xFF60A5FA,
+    val coverPattern: CoverPattern = CoverPattern.CLASSIC_SPINE,
     val isFavorite: Boolean = false,
     val isTrashed: Boolean = false,
     val isInfiniteCanvas: Boolean = false,

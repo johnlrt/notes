@@ -96,6 +96,9 @@ fun HandwritingCanvas(
     selectedImageId: String?,
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
+    isInfiniteCanvas: Boolean = false,
+    holdToShapeEnabled: Boolean = true,
+    selectedStickerId: String? = null,
     onCommitStroke: (Int, List<StrokePoint>, ToolType?) -> Unit,
     onEraseAt: (Int, Float, Float, Boolean) -> Unit,
     onSelectLasso: (List<StrokePoint>) -> Unit,
@@ -103,11 +106,16 @@ fun HandwritingCanvas(
     onTapTape: (Float, Float) -> Boolean,
     onTapHyperlink: (Int) -> Unit,
     onSelectImage: (String?) -> Unit,
+    onSelectSticker: (String?) -> Unit = {},
+    onTransformImage: (String, Float, Float, Float?, Float?, Float?, Boolean) -> Unit = { _, _, _, _, _, _, _ -> },
+    onTransformSticker: (String, Float, Float, Float?, Float?, Float?, Boolean) -> Unit = { _, _, _, _, _, _, _ -> },
+    onTwoFingerUndo: () -> Unit = {},
+    onThreeFingerRedo: () -> Unit = {},
     onRequestTextEdit: (Float, Float, String?, String) -> Unit,
     onRequestHyperlinkCreate: (Float, Float) -> Unit
 ) {
     val activePage = pages.getOrNull(currentPageIndex) ?: return
-    val isContinuous = scrollDirection == ScrollDirection.VERTICAL_CONTINUOUS && pages.size > 1 && !readOnly
+    val isContinuous = !isInfiniteCanvas && scrollDirection == ScrollDirection.VERTICAL_CONTINUOUS && pages.size > 1 && !readOnly
 
     val pageW = activePage.orientation.widthPx
     val pageH = activePage.orientation.heightPx
@@ -219,6 +227,21 @@ fun HandwritingCanvas(
         return lastIdx to (wy - pageTops[lastIdx])
     }
 
+    // Hold-to-Shape + Two/Three-Finger Undo/Redo + Direct Transform state
+    var holdLastMoveMs = remember { 0L }
+    var holdAnchorX = remember { 0f }
+    var holdAnchorY = remember { 0f }
+    var holdSnappedToShape = remember { false }
+
+    var multiDownTimeMs = remember { 0L }
+    var multiMaxPointers = remember { 0 }
+    var multiStartMidX = remember { 0f }
+    var multiStartMidY = remember { 0f }
+
+    var directDragMode = remember { 0 } // 0=none, 1=rulerMove, 2=rulerRotate, 3=imgMove, 4=imgResize, 5=imgRotate, 6=stMove, 7=stResize, 8=stRotate
+    var directTargetId = remember { "" }
+    var directUndoRecorded = remember { false }
+
     fun pushFrontBufferFrame(tool: ToolType, pageTop: Float, predPts: List<StrokePoint>) {
         val ptsCopy = if (tool == ToolType.LASER) ArrayList(laserTrail) else ArrayList(livePoints)
         lowLatencyController.renderWetStroke(
@@ -249,7 +272,7 @@ fun HandwritingCanvas(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFE5E9F0))
+            .background(if (isInfiniteCanvas) Color(activePage.paperColor.argb) else Color(0xFFE5E9F0))
             .onSizeChanged { viewportSize = it }
             .pointerInteropFilter { event ->
                 if (readOnly) {
@@ -257,7 +280,7 @@ fun HandwritingCanvas(
                         event, zoomLocked, isPanZooming, { isPanZooming = it },
                         prevPinchDist, { prevPinchDist = it }, prevMidX, prevMidY,
                         { mx, my -> prevMidX = mx; prevMidY = my },
-                        scale, offsetX, offsetY
+                        scale, offsetX, offsetY, isInfiniteCanvas
                     ) { ns, nx, ny -> scale = ns; offsetX = nx; offsetY = ny }
                     return@pointerInteropFilter true
                 }
@@ -267,23 +290,44 @@ fun HandwritingCanvas(
                 val isStylus = primaryToolType == MotionEvent.TOOL_TYPE_STYLUS ||
                     primaryToolType == MotionEvent.TOOL_TYPE_ERASER
 
+                // Track 2-finger tap (Undo) & 3-finger tap (Redo)
+                if (pointerCount >= 2) {
+                    if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+                        if (multiMaxPointers < 2) {
+                            multiDownTimeMs = event.eventTime
+                            multiStartMidX = (event.getX(0) + event.getX(1)) * 0.5f
+                            multiStartMidY = (event.getY(0) + event.getY(1)) * 0.5f
+                        }
+                        if (pointerCount > multiMaxPointers) multiMaxPointers = pointerCount
+                    }
+                }
+
                 if (pointerCount >= 2 || (stylusOnlyMode && !isStylus)) {
                     if (activeDrawingTool != null) {
                         livePoints.clear()
                         laserTrail.clear()
                         activeDrawingTool = null
+                        holdSnappedToShape = false
                         lowLatencyController.clearImmediate()
                     }
                     handlePanZoomEvent(
                         event, zoomLocked, isPanZooming, { isPanZooming = it },
                         prevPinchDist, { prevPinchDist = it }, prevMidX, prevMidY,
                         { mx, my -> prevMidX = mx; prevMidY = my },
-                        scale, offsetX, offsetY
+                        scale, offsetX, offsetY, isInfiniteCanvas
                     ) { ns, nx, ny -> scale = ns; offsetX = nx; offsetY = ny }
                     return@pointerInteropFilter true
                 }
 
-                if (isPanZooming && event.actionMasked == MotionEvent.ACTION_UP) {
+                if ((isPanZooming || multiMaxPointers >= 2) && event.actionMasked == MotionEvent.ACTION_UP) {
+                    val dt = event.eventTime - multiDownTimeMs
+                    val moved = hypot((event.x - multiStartMidX).toDouble(), (event.y - multiStartMidY).toDouble()).toFloat()
+                    if (multiMaxPointers == 2 && dt in 1L..250L && moved < 32f) {
+                        onTwoFingerUndo()
+                    } else if (multiMaxPointers >= 3 && dt in 1L..290L && moved < 38f) {
+                        onThreeFingerRedo()
+                    }
+                    multiMaxPointers = 0
                     isPanZooming = false
                     return@pointerInteropFilter true
                 }
@@ -312,6 +356,102 @@ fun HandwritingCanvas(
                         hostView.requestUnbufferedDispatch(event)
                         motionPredictor.record(event)
                         drawingTargetPageIndex = targetIdx
+                        directDragMode = 0
+                        directTargetId = ""
+                        directUndoRecorded = false
+                        holdSnappedToShape = false
+                        holdLastMoveMs = event.eventTime
+                        holdAnchorX = px
+                        holdAnchorY = py
+
+                        val handleRadius = 34f / scale.coerceAtLeast(0.5f)
+
+                        // 0A. Ruler direct drag & rotate handle
+                        if (showRuler) {
+                            val rad = Math.toRadians(rulerAngleDeg.toDouble())
+                            val cosA = kotlin.math.cos(rad).toFloat()
+                            val sinA = kotlin.math.sin(rad).toFloat()
+                            val rotKnobX = rulerCx + 455f * cosA
+                            val rotKnobY = rulerCy + 455f * sinA
+                            if (hypot((wx - rotKnobX).toDouble(), (localY - rotKnobY).toDouble()) <= handleRadius * 1.3f) {
+                                directDragMode = 2 // RULER_ROTATE
+                                lastDragPageX = wx
+                                lastDragPageY = localY
+                                return@pointerInteropFilter true
+                            }
+                            val dxR = wx - rulerCx
+                            val dyR = localY - rulerCy
+                            val rLocalX = dxR * cosA + dyR * sinA
+                            val rLocalY = -dxR * sinA + dyR * cosA
+                            if (kotlin.math.abs(rLocalX) <= 440f && kotlin.math.abs(rLocalY) <= 36f) {
+                                directDragMode = 1 // RULER_MOVE
+                                lastDragPageX = wx
+                                lastDragPageY = localY
+                                return@pointerInteropFilter true
+                            }
+                        }
+
+                        // 0B. Selected Image handles (resize / rotate / move)
+                        if (selectedImageId != null) {
+                            val selImg = targetPage.images.find { it.id == selectedImageId }
+                            if (selImg != null) {
+                                val rotX = selImg.x + selImg.width * 0.5f
+                                val rotY = selImg.y - 34f / scale.coerceAtLeast(0.5f)
+                                val brX = selImg.x + selImg.width
+                                val brY = selImg.y + selImg.height
+                                when {
+                                    hypot((wx - rotX).toDouble(), (localY - rotY).toDouble()) <= handleRadius -> {
+                                        directDragMode = 5 // IMAGE_ROTATE
+                                        directTargetId = selImg.id
+                                        lastDragPageX = wx; lastDragPageY = localY
+                                        return@pointerInteropFilter true
+                                    }
+                                    hypot((wx - brX).toDouble(), (localY - brY).toDouble()) <= handleRadius -> {
+                                        directDragMode = 4 // IMAGE_RESIZE
+                                        directTargetId = selImg.id
+                                        lastDragPageX = wx; lastDragPageY = localY
+                                        return@pointerInteropFilter true
+                                    }
+                                    HitTestEngine.hitTestImage(selImg, wx, localY) -> {
+                                        directDragMode = 3 // IMAGE_MOVE
+                                        directTargetId = selImg.id
+                                        lastDragPageX = wx; lastDragPageY = localY
+                                        return@pointerInteropFilter true
+                                    }
+                                }
+                            }
+                        }
+
+                        // 0C. Selected Sticker handles (resize / rotate / move)
+                        if (selectedStickerId != null) {
+                            val selSt = targetPage.stickers.find { it.id == selectedStickerId }
+                            if (selSt != null) {
+                                val rotX = selSt.x + selSt.width * 0.5f
+                                val rotY = selSt.y - 34f / scale.coerceAtLeast(0.5f)
+                                val brX = selSt.x + selSt.width
+                                val brY = selSt.y + selSt.height
+                                when {
+                                    hypot((wx - rotX).toDouble(), (localY - rotY).toDouble()) <= handleRadius -> {
+                                        directDragMode = 8 // STICKER_ROTATE
+                                        directTargetId = selSt.id
+                                        lastDragPageX = wx; lastDragPageY = localY
+                                        return@pointerInteropFilter true
+                                    }
+                                    hypot((wx - brX).toDouble(), (localY - brY).toDouble()) <= handleRadius -> {
+                                        directDragMode = 7 // STICKER_RESIZE
+                                        directTargetId = selSt.id
+                                        lastDragPageX = wx; lastDragPageY = localY
+                                        return@pointerInteropFilter true
+                                    }
+                                    HitTestEngine.hitTestSticker(selSt, wx, localY) -> {
+                                        directDragMode = 6 // STICKER_MOVE
+                                        directTargetId = selSt.id
+                                        lastDragPageX = wx; lastDragPageY = localY
+                                        return@pointerInteropFilter true
+                                    }
+                                }
+                            }
+                        }
 
                         // 1. Check Hyperlink tap
                         if (effectiveTool != ToolType.ERASER && effectiveTool != ToolType.LASSO) {
@@ -322,15 +462,29 @@ fun HandwritingCanvas(
                             }
                         }
 
-                        // 2. Check Image tap (select for cropping/deleting)
-                        if (effectiveTool == ToolType.IMAGE || effectiveTool == ToolType.LASSO) {
+                        // 2. Check Image or Sticker tap (select for move/resize/rotate/crop/delete)
+                        if (effectiveTool == ToolType.IMAGE || effectiveTool == ToolType.STICKER || effectiveTool == ToolType.LASSO) {
+                            val st = targetPage.stickers.lastOrNull { HitTestEngine.hitTestSticker(it, wx, localY) }
+                            if (st != null) {
+                                onSelectSticker(st.id)
+                                directDragMode = 6
+                                directTargetId = st.id
+                                lastDragPageX = wx; lastDragPageY = localY
+                                return@pointerInteropFilter true
+                            }
                             val img = targetPage.images.lastOrNull { HitTestEngine.hitTestImage(it, wx, localY) }
                             if (img != null) {
                                 onSelectImage(img.id)
+                                directDragMode = 3
+                                directTargetId = img.id
+                                lastDragPageX = wx; lastDragPageY = localY
                                 return@pointerInteropFilter true
-                            } else if (selectedImageId != null) {
-                                onSelectImage(null)
                             }
+                            if (selectedImageId != null) onSelectImage(null)
+                            if (selectedStickerId != null) onSelectSticker(null)
+                        } else {
+                            if (selectedImageId != null) onSelectImage(null)
+                            if (selectedStickerId != null) onSelectSticker(null)
                         }
 
                         // 3. Check Active Recall Tape tap
@@ -390,6 +544,57 @@ fun HandwritingCanvas(
                     }
 
                     MotionEvent.ACTION_MOVE -> {
+                        // Direct manipulation of Ruler, Image, or Sticker handles
+                        if (directDragMode != 0) {
+                            val dx = wx - lastDragPageX
+                            val dy = localY - lastDragPageY
+                            lastDragPageX = wx
+                            lastDragPageY = localY
+                            val recordUndo = !directUndoRecorded
+                            directUndoRecorded = true
+
+                            when (directDragMode) {
+                                1 -> { // RULER_MOVE
+                                    rulerCx += dx
+                                    rulerCy += dy
+                                }
+                                2 -> { // RULER_ROTATE with magnetic 15-degree snap
+                                    val rawDeg = Math.toDegrees(kotlin.math.atan2((localY - rulerCy).toDouble(), (wx - rulerCx).toDouble())).toFloat()
+                                    val nearest15 = (kotlin.math.round(rawDeg / 15f) * 15f)
+                                    rulerAngleDeg = if (kotlin.math.abs(rawDeg - nearest15) < 4.5f) nearest15 else rawDeg
+                                }
+                                3 -> onTransformImage(directTargetId, dx, dy, null, null, null, recordUndo)
+                                4 -> {
+                                    targetPage.images.find { it.id == directTargetId }?.let { img ->
+                                        onTransformImage(directTargetId, 0f, 0f, (wx - img.x).coerceAtLeast(60f), (localY - img.y).coerceAtLeast(60f), null, recordUndo)
+                                    }
+                                }
+                                5 -> {
+                                    targetPage.images.find { it.id == directTargetId }?.let { img ->
+                                        val cx = img.x + img.width * 0.5f
+                                        val cy = img.y + img.height * 0.5f
+                                        val deg = Math.toDegrees(kotlin.math.atan2((localY - cy).toDouble(), (wx - cx).toDouble())).toFloat() + 90f
+                                        onTransformImage(directTargetId, 0f, 0f, null, null, deg, recordUndo)
+                                    }
+                                }
+                                6 -> onTransformSticker(directTargetId, dx, dy, null, null, null, recordUndo)
+                                7 -> {
+                                    targetPage.stickers.find { it.id == directTargetId }?.let { st ->
+                                        onTransformSticker(directTargetId, 0f, 0f, (wx - st.x).coerceAtLeast(80f), (localY - st.y).coerceAtLeast(48f), null, recordUndo)
+                                    }
+                                }
+                                8 -> {
+                                    targetPage.stickers.find { it.id == directTargetId }?.let { st ->
+                                        val cx = st.x + st.width * 0.5f
+                                        val cy = st.y + st.height * 0.5f
+                                        val deg = Math.toDegrees(kotlin.math.atan2((localY - cy).toDouble(), (wx - cx).toDouble())).toFloat() + 90f
+                                        onTransformSticker(directTargetId, 0f, 0f, null, null, deg, recordUndo)
+                                    }
+                                }
+                            }
+                            return@pointerInteropFilter true
+                        }
+
                         if (isDraggingLassoSelection) {
                             val dx = wx - lastDragPageX
                             val dy = localY - lastDragPageY
@@ -429,7 +634,7 @@ fun HandwritingCanvas(
                             if (tool == ToolType.LASER) {
                                 laserTrail.add(pt)
                                 if (laserTrail.size > 36) laserTrail.removeAt(0)
-                            } else {
+                            } else if (!holdSnappedToShape) {
                                 livePoints.add(pt)
                                 predictor.record(pt)
                             }
@@ -446,11 +651,41 @@ fun HandwritingCanvas(
                             if (laserTrail.size > 36) laserTrail.removeAt(0)
                             pushFrontBufferFrame(tool, pageTop, emptyList())
                         } else {
-                            livePoints.add(pt)
-                            predictor.record(pt)
+                            // Freenotes Hold-to-Shape: pause stylus >= 420ms after drawing -> auto-snap to crisp shape!
+                            if (holdToShapeEnabled && !holdSnappedToShape &&
+                                tool in listOf(ToolType.FOUNTAIN_PEN, ToolType.BALLPOINT, ToolType.PENCIL, ToolType.ART_PEN, ToolType.HIGHLIGHTER)
+                            ) {
+                                val distFromAnchor = hypot((fx - holdAnchorX).toDouble(), (fy - holdAnchorY).toDouble()).toFloat()
+                                if (distFromAnchor > 14f) {
+                                    holdAnchorX = fx
+                                    holdAnchorY = fy
+                                    holdLastMoveMs = event.eventTime
+                                } else if (livePoints.size >= 8 && (event.eventTime - holdLastMoveMs) >= 420L) {
+                                    val span = hypot(
+                                        (livePoints.last().x - livePoints.first().x).toDouble(),
+                                        (livePoints.last().y - livePoints.first().y).toDouble()
+                                    ).toFloat()
+                                    if (span >= 36f || livePoints.size >= 18) {
+                                        val snapped = StrokeGeometry.snapToShape(livePoints, com.johnlrt.freenotes.data.ShapeKind.AUTO)
+                                        livePoints.clear()
+                                        livePoints.addAll(snapped)
+                                        holdSnappedToShape = true
+                                        pushFrontBufferFrame(tool, pageTop, emptyList())
+                                        return@pointerInteropFilter true
+                                    }
+                                }
+                            }
+
+                            if (!holdSnappedToShape) {
+                                livePoints.add(pt)
+                                predictor.record(pt)
+                            } else if (livePoints.size == 2) {
+                                // While holding a snapped straight line, let user adjust endpoint live!
+                                livePoints[1] = pt
+                            }
 
                             // Combine OS hardware Kalman predictor with StylusPredictor fallback
-                            val predPts = if (tool != ToolType.TAPE && tool != ToolType.LASSO) {
+                            val predPts = if (!holdSnappedToShape && tool != ToolType.TAPE && tool != ToolType.LASSO) {
                                 val osPred = motionPredictor.predict()
                                 if (osPred != null) {
                                     val list = ArrayList<StrokePoint>(osPred.historySize + 1)
@@ -494,6 +729,12 @@ fun HandwritingCanvas(
                     }
 
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (directDragMode != 0) {
+                            directDragMode = 0
+                            directTargetId = ""
+                            directUndoRecorded = false
+                            return@pointerInteropFilter true
+                        }
                         if (isDraggingLassoSelection) {
                             isDraggingLassoSelection = false
                             return@pointerInteropFilter true
@@ -513,6 +754,7 @@ fun HandwritingCanvas(
                         }
                         livePoints.clear()
                         activeDrawingTool = null
+                        holdSnappedToShape = false
                     }
                 }
                 true
@@ -532,43 +774,110 @@ fun HandwritingCanvas(
                     val ph = p.orientation.heightPx
 
                     withTransform({ translate(top = topY) }) {
-                        // Page drop shadow
-                        drawRect(Color.Black.copy(alpha = 0.11f), Offset(6f, 8f), Size(pw, ph))
+                        if (isInfiniteCanvas) {
+                            // Unbounded tiled procedural background across visible viewport
+                            val worldLeft = -offsetX / scale - 120f
+                            val worldTop = -offsetY / scale - 120f
+                            val worldRight = (size.width - offsetX) / scale + 120f
+                            val worldBottom = (size.height - offsetY) / scale + 120f
+                            val gridColor = Color(p.paperColor.gridArgb)
+                            val step = 48f
+                            val startX = kotlin.math.floor(worldLeft / step) * step
+                            val startY = kotlin.math.floor(worldTop / step) * step
+                            when (p.template) {
+                                PaperTemplate.DOTTED -> {
+                                    var x = startX
+                                    while (x <= worldRight) {
+                                        var y = startY
+                                        while (y <= worldBottom) {
+                                            drawCircle(gridColor, radius = 2.2f, center = Offset(x, y))
+                                            y += step
+                                        }
+                                        x += step
+                                    }
+                                }
+                                PaperTemplate.RULED, PaperTemplate.WIDE_RULED -> {
+                                    val rStep = if (p.template == PaperTemplate.WIDE_RULED) 68f else 48f
+                                    var y = kotlin.math.floor(worldTop / rStep) * rStep
+                                    while (y <= worldBottom) {
+                                        drawLine(gridColor, Offset(worldLeft, y), Offset(worldRight, y), strokeWidth = 1.4f)
+                                        y += rStep
+                                    }
+                                }
+                                PaperTemplate.BLANK -> Unit
+                                else -> {
+                                    var x = startX
+                                    while (x <= worldRight) {
+                                        drawLine(gridColor, Offset(x, worldTop), Offset(x, worldBottom), strokeWidth = 1.2f)
+                                        x += step
+                                    }
+                                    var y = startY
+                                    while (y <= worldBottom) {
+                                        drawLine(gridColor, Offset(worldLeft, y), Offset(worldRight, y), strokeWidth = 1.2f)
+                                        y += step
+                                    }
+                                }
+                            }
+                        } else {
+                            // Page drop shadow
+                            drawRect(Color.Black.copy(alpha = 0.11f), Offset(6f, 8f), Size(pw, ph))
 
-                        // 1. Paper surface
-                        drawRect(Color(p.paperColor.argb), Offset.Zero, Size(pw, ph))
+                            // 1. Paper surface
+                            drawRect(Color(p.paperColor.argb), Offset.Zero, Size(pw, ph))
 
-                        // 2. PDF backdrop (with optional Dark-Mode Inversion)
-                        pdfBitmaps[p.id]?.let { bmp ->
-                            drawImage(
-                                image = bmp.asImageBitmap(),
-                                dstOffset = IntOffset.Zero,
-                                dstSize = IntSize(pw.toInt(), ph.toInt()),
-                                colorFilter = if (darkPdfInvert) ColorFilter.colorMatrix(InvertColorMatrix) else null
-                            )
+                            // 2. PDF backdrop (with optional Dark-Mode Inversion)
+                            pdfBitmaps[p.id]?.let { bmp ->
+                                drawImage(
+                                    image = bmp.asImageBitmap(),
+                                    dstOffset = IntOffset.Zero,
+                                    dstSize = IntSize(pw.toInt(), ph.toInt()),
+                                    colorFilter = if (darkPdfInvert) ColorFilter.colorMatrix(InvertColorMatrix) else null
+                                )
+                            }
+
+                            // 3. Procedural paper template
+                            drawPaperTemplate(p.template, Color(p.paperColor.gridArgb), pw, ph)
                         }
 
-                        // 3. Procedural paper template
-                        drawPaperTemplate(p.template, Color(p.paperColor.gridArgb), pw, ph)
-
                         val visibleLayers = p.layers.filter { it.isVisible }.map { it.id }.toSet()
+                        val handleR = 11f / scale.coerceAtLeast(0.4f)
+                        val strokeW = 2.8f / scale.coerceAtLeast(0.4f)
 
-                        // 4. Inserted Images
+                        // 4. Inserted Images (with rotation + Freenotes resize/rotate handles)
                         for (img in p.images) {
                             if (img.layerId !in visibleLayers) continue
                             imageBitmaps[img.filePath]?.let { bmp ->
-                                drawImage(
-                                    image = bmp.asImageBitmap(),
-                                    dstOffset = IntOffset(img.x.toInt(), img.y.toInt()),
-                                    dstSize = IntSize(img.width.toInt(), img.height.toInt())
-                                )
+                                rotate(degrees = img.rotationDeg, pivot = Offset(img.x + img.width * 0.5f, img.y + img.height * 0.5f)) {
+                                    drawImage(
+                                        image = bmp.asImageBitmap(),
+                                        dstOffset = IntOffset(img.x.toInt(), img.y.toInt()),
+                                        dstSize = IntSize(img.width.toInt(), img.height.toInt())
+                                    )
+                                }
                                 if (img.id == selectedImageId) {
                                     drawRect(
                                         color = Color(0xFF2563EB),
                                         topLeft = Offset(img.x, img.y),
                                         size = Size(img.width, img.height),
-                                        style = ComposeStroke(width = 3.5f / scale.coerceAtLeast(0.5f))
+                                        style = ComposeStroke(width = strokeW)
                                     )
+                                    // Top rotation stem + knob
+                                    val rotX = img.x + img.width * 0.5f
+                                    val rotY = img.y - 34f / scale.coerceAtLeast(0.5f)
+                                    drawLine(Color(0xFF2563EB), Offset(rotX, img.y), Offset(rotX, rotY), strokeWidth = strokeW)
+                                    drawCircle(Color.White, radius = handleR, center = Offset(rotX, rotY))
+                                    drawCircle(Color(0xFF2563EB), radius = handleR, center = Offset(rotX, rotY), style = ComposeStroke(width = strokeW))
+                                    // Corner handles (bottom-right highlighted for resize)
+                                    val corners = listOf(
+                                        Offset(img.x, img.y),
+                                        Offset(img.x + img.width, img.y),
+                                        Offset(img.x, img.y + img.height),
+                                        Offset(img.x + img.width, img.y + img.height)
+                                    )
+                                    corners.forEachIndexed { idx, c ->
+                                        drawCircle(if (idx == 3) Color(0xFF2563EB) else Color.White, radius = handleR, center = c)
+                                        drawCircle(Color(0xFF2563EB), radius = handleR, center = c, style = ComposeStroke(width = strokeW))
+                                    }
                                 }
                             }
                         }
@@ -587,7 +896,7 @@ fun HandwritingCanvas(
                             }
                         }
 
-                        // 7. Stickers (live wet ink & laser are rendered in 120Hz LowLatencyInkOverlay front buffer)
+                        // 7. Stickers (with rotation + Freenotes resize/rotate handles)
                         val stickerTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                             textSize = 26f
                             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -595,27 +904,45 @@ fun HandwritingCanvas(
                         }
                         for (st in p.stickers) {
                             if (st.layerId !in visibleLayers) continue
-                            drawRoundRect(
-                                color = Color(st.bgColorArgb),
-                                topLeft = Offset(st.x, st.y),
-                                size = Size(st.width, st.height),
-                                cornerRadius = CornerRadius(16f, 16f)
-                            )
-                            drawRoundRect(
-                                color = Color(st.borderColorArgb),
-                                topLeft = Offset(st.x, st.y),
-                                size = Size(st.width, st.height),
-                                cornerRadius = CornerRadius(16f, 16f),
-                                style = ComposeStroke(width = 3f)
-                            )
-                            stickerTextPaint.color = st.textColorArgb.toInt()
-                            val label = listOf(st.emoji, st.label).filter { it.isNotBlank() }.joinToString(" ")
-                            drawContext.canvas.nativeCanvas.drawText(
-                                label,
-                                st.x + st.width * 0.5f,
-                                st.y + st.height * 0.5f + 9f,
-                                stickerTextPaint
-                            )
+                            rotate(degrees = st.rotationDeg, pivot = Offset(st.x + st.width * 0.5f, st.y + st.height * 0.5f)) {
+                                drawRoundRect(
+                                    color = Color(st.bgColorArgb),
+                                    topLeft = Offset(st.x, st.y),
+                                    size = Size(st.width, st.height),
+                                    cornerRadius = CornerRadius(16f, 16f)
+                                )
+                                drawRoundRect(
+                                    color = Color(st.borderColorArgb),
+                                    topLeft = Offset(st.x, st.y),
+                                    size = Size(st.width, st.height),
+                                    cornerRadius = CornerRadius(16f, 16f),
+                                    style = ComposeStroke(width = 3f)
+                                )
+                                stickerTextPaint.color = st.textColorArgb.toInt()
+                                val label = listOf(st.emoji, st.label).filter { it.isNotBlank() }.joinToString(" ")
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    label,
+                                    st.x + st.width * 0.5f,
+                                    st.y + st.height * 0.5f + 9f,
+                                    stickerTextPaint
+                                )
+                            }
+                            if (st.id == selectedStickerId) {
+                                drawRect(
+                                    color = Color(0xFF2563EB),
+                                    topLeft = Offset(st.x, st.y),
+                                    size = Size(st.width, st.height),
+                                    style = ComposeStroke(width = strokeW)
+                                )
+                                val rotX = st.x + st.width * 0.5f
+                                val rotY = st.y - 34f / scale.coerceAtLeast(0.5f)
+                                drawLine(Color(0xFF2563EB), Offset(rotX, st.y), Offset(rotX, rotY), strokeWidth = strokeW)
+                                drawCircle(Color.White, radius = handleR, center = Offset(rotX, rotY))
+                                drawCircle(Color(0xFF2563EB), radius = handleR, center = Offset(rotX, rotY), style = ComposeStroke(width = strokeW))
+                                val br = Offset(st.x + st.width, st.y + st.height)
+                                drawCircle(Color(0xFF2563EB), radius = handleR, center = br)
+                                drawCircle(Color.White, radius = handleR * 0.45f, center = br)
+                            }
                         }
 
                         // 9. Clickable Internal Hyperlinks
@@ -719,7 +1046,7 @@ fun HandwritingCanvas(
                                 )
                                 var tx = rulerCx - rLen / 2f + 20f
                                 var tickIdx = 0
-                                while (tx < rulerCx + rLen / 2f - 10f) {
+                                while (tx < rulerCx + rLen / 2f - 40f) {
                                     val tickLen = if (tickIdx % 5 == 0) 20f else 10f
                                     drawLine(
                                         color = Color(0xFF1E293B).copy(alpha = 0.65f),
@@ -730,6 +1057,23 @@ fun HandwritingCanvas(
                                     tx += 20f
                                     tickIdx++
                                 }
+                                // Live degree readout in center of ruler
+                                val degPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                    color = 0xFF1E3A8A.toInt()
+                                    textSize = 22f
+                                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                    textAlign = android.graphics.Paint.Align.CENTER
+                                }
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    "${kotlin.math.round(rulerAngleDeg).toInt()}°",
+                                    rulerCx,
+                                    rulerCy + 14f,
+                                    degPaint
+                                )
+                                // Right-end circular rotation handle
+                                val knobCenter = Offset(rulerCx + 455f, rulerCy)
+                                drawCircle(Color(0xFF2563EB), radius = 16f, center = knobCenter)
+                                drawCircle(Color.White, radius = 7f, center = knobCenter)
                             }
                         }
 
@@ -761,6 +1105,7 @@ private fun handlePanZoomEvent(
     scale: Float,
     offsetX: Float,
     offsetY: Float,
+    isInfiniteCanvas: Boolean = false,
     onUpdateTransform: (Float, Float, Float) -> Unit
 ) {
     when (event.actionMasked) {
@@ -786,7 +1131,9 @@ private fun handlePanZoomEvent(
                 val midY = (event.getY(0) + event.getY(1)) / 2f
 
                 val zoomFactor = if (!zoomLocked && prevPinchDist > 10f) dist / prevPinchDist else 1f
-                val newScale = (scale * zoomFactor).coerceIn(0.3f, 4.5f)
+                val minZoom = if (isInfiniteCanvas) 0.15f else 0.3f
+                val maxZoom = if (isInfiniteCanvas) 5.0f else 4.5f
+                val newScale = (scale * zoomFactor).coerceIn(minZoom, maxZoom)
                 val actualZoom = newScale / scale
 
                 val panX = midX - prevMidX
@@ -868,6 +1215,120 @@ private fun DrawScope.drawPaperTemplate(
                     drawLine(lineColor, Offset(72f, y), Offset(w - 72f, y), strokeWidth = 1.4f)
                 }
                 staffTop += 150f
+            }
+        }
+        PaperTemplate.ISOMETRIC -> {
+            val step = 52f
+            val tan30 = 0.57735027f
+            // Vertical lines
+            var x = 0f
+            while (x <= w) {
+                drawLine(gridColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1.1f)
+                x += step
+            }
+            // +30 deg and -30 deg diagonals
+            val dy = step * tan30
+            var y = -w * tan30
+            while (y <= h + w * tan30) {
+                drawLine(gridColor, Offset(0f, y), Offset(w, y + w * tan30), strokeWidth = 1.1f)
+                drawLine(gridColor, Offset(0f, y), Offset(w, y - w * tan30), strokeWidth = 1.1f)
+                y += dy * 2f
+            }
+        }
+        PaperTemplate.HEXAGONAL -> {
+            val r = 28f
+            val dx = r * 1.5f
+            val dy = r * 1.7320508f
+            var col = 0
+            var cx = r
+            while (cx < w + r) {
+                var cy = if (col % 2 == 0) r else r + dy / 2f
+                while (cy < h + r) {
+                    val hexPath = Path()
+                    for (k in 0..5) {
+                        val a = Math.toRadians(60.0 * k)
+                        val hx = cx + (r * kotlin.math.cos(a)).toFloat()
+                        val hy = cy + (r * kotlin.math.sin(a)).toFloat()
+                        if (k == 0) hexPath.moveTo(hx, hy) else hexPath.lineTo(hx, hy)
+                    }
+                    hexPath.close()
+                    drawPath(hexPath, gridColor, style = ComposeStroke(width = 1.1f))
+                    cy += dy
+                }
+                cx += dx
+                col++
+            }
+        }
+        PaperTemplate.WEEKLY_PLANNER -> {
+            val pad = 48f
+            val headerH = 120f
+            drawLine(gridColor, Offset(pad, headerH), Offset(w - pad, headerH), strokeWidth = 2.5f)
+            val cols = 2
+            val rows = 4
+            val cellW = (w - pad * 2) / cols
+            val cellH = (h - headerH - pad) / rows
+            for (r in 0 until rows) {
+                for (c in 0 until cols) {
+                    val left = pad + c * cellW
+                    val top = headerH + 16f + r * cellH
+                    drawRoundRect(
+                        color = gridColor,
+                        topLeft = Offset(left + 8f, top + 8f),
+                        size = Size(cellW - 16f, cellH - 16f),
+                        cornerRadius = CornerRadius(12f, 12f),
+                        style = ComposeStroke(width = 2f)
+                    )
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(left + 8f, top + 56f),
+                        end = Offset(left + cellW - 8f, top + 56f),
+                        strokeWidth = 1.6f
+                    )
+                }
+            }
+        }
+        PaperTemplate.MONTHLY_CALENDAR -> {
+            val pad = 44f
+            val topY = 140f
+            val cols = 7
+            val rows = 5
+            val cellW = (w - pad * 2) / cols
+            val cellH = (h - topY - pad) / rows
+            for (c in 0..cols) {
+                val x = pad + c * cellW
+                drawLine(gridColor, Offset(x, topY), Offset(x, topY + rows * cellH), strokeWidth = 1.6f)
+            }
+            for (r in 0..rows) {
+                val y = topY + r * cellH
+                drawLine(gridColor, Offset(pad, y), Offset(w - pad, y), strokeWidth = 1.6f)
+            }
+        }
+        PaperTemplate.TWO_COLUMN -> {
+            val midX = w * 0.5f
+            drawLine(Color(0xFF94A3B8).copy(alpha = 0.6f), Offset(midX, 80f), Offset(midX, h - 60f), strokeWidth = 2.4f)
+            var y = 130f
+            while (y < h - 60f) {
+                drawLine(gridColor, Offset(56f, y), Offset(midX - 24f, y), strokeWidth = 1.4f)
+                drawLine(gridColor, Offset(midX + 24f, y), Offset(w - 56f, y), strokeWidth = 1.4f)
+                y += 48f
+            }
+        }
+        PaperTemplate.STORYBOARD -> {
+            val pad = 56f
+            val cols = 2
+            val rows = 3
+            val gap = 32f
+            val frameW = (w - pad * 2 - gap) / cols
+            val frameH = (h - pad * 2 - gap * 2) / rows
+            for (r in 0 until rows) {
+                for (c in 0 until cols) {
+                    val left = pad + c * (frameW + gap)
+                    val top = pad + r * (frameH + gap)
+                    val boxH = frameH * 0.72f
+                    drawRect(gridColor, Offset(left, top), Size(frameW, boxH), style = ComposeStroke(width = 2.2f))
+                    drawLine(gridColor, Offset(left, top + boxH + 28f), Offset(left + frameW, top + boxH + 28f), strokeWidth = 1.4f)
+                    drawLine(gridColor, Offset(left, top + boxH + 62f), Offset(left + frameW, top + boxH + 62f), strokeWidth = 1.4f)
+                }
             }
         }
     }

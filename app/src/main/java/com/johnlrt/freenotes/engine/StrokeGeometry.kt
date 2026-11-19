@@ -336,4 +336,77 @@ object StrokeGeometry {
             }
         }
     }
+
+    /**
+     * Detects Freenotes' "Scribble-to-Erase" back-and-forth scratch gesture:
+     * requires >= 3 sharp direction reversals (> 125 deg) with dense path overlap
+     * inside a compact area so regular handwriting never false-triggers.
+     */
+    fun isScribbleGesture(points: List<StrokePoint>): Boolean {
+        if (points.size < 12) return false
+
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        var pathLen = 0f
+
+        for (i in points.indices) {
+            val p = points[i]
+            if (p.x < minX) minX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.x > maxX) maxX = p.x
+            if (p.y > maxY) maxY = p.y
+            if (i > 0) {
+                pathLen += hypot((p.x - points[i - 1].x).toDouble(), (p.y - points[i - 1].y).toDouble()).toFloat()
+            }
+        }
+
+        val boxW = (maxX - minX).coerceAtLeast(1f)
+        val boxH = (maxY - minY).coerceAtLeast(1f)
+        val maxDim = max(boxW, boxH)
+        if (pathLen < 120f || maxDim < 24f) return false
+
+        // Resample direction vectors every ~16px to count crisp zig-zag reversals
+        val dirs = ArrayList<Pair<Float, Float>>()
+        var anchor = points.first()
+        for (i in 1 until points.size) {
+            val p = points[i]
+            val dx = p.x - anchor.x
+            val dy = p.y - anchor.y
+            val d = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            if (d >= 16f) {
+                dirs.add((dx / d) to (dy / d))
+                anchor = p
+            }
+        }
+        if (dirs.size < 4) return false
+
+        var reversals = 0
+        for (i in 1 until dirs.size) {
+            val dot = dirs[i - 1].first * dirs[i].first + dirs[i - 1].second * dirs[i].second
+            // cos(125 deg) ~= -0.57
+            if (dot < -0.55f) {
+                reversals++
+            }
+        }
+
+        val densityRatio = pathLen / maxDim
+        return reversals >= 3 && densityRatio >= 2.2f
+    }
+
+    fun boundingBoxOfPoints(points: List<StrokePoint>): FloatArray? {
+        if (points.isEmpty()) return null
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (p in points) {
+            if (p.x < minX) minX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.x > maxX) maxX = p.x
+            if (p.y > maxY) maxY = p.y
+        }
+        return floatArrayOf(minX, minY, maxX, maxY)
+    }
 }

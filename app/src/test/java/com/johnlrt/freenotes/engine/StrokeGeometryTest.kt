@@ -92,4 +92,22 @@ class StrokeGeometryTest {
         assertEquals(450f, fx, 1e-3f)
         assertEquals(100f, fy, 1e-3f)
     }
+
+    @Test
+    fun scribbleToEraseDetectsZigZagAndIgnoresStraightLine() {
+        // Dense back-and-forth scribble over a 100px span (4 reversals)
+        val scribble = listOf(
+            StrokePoint(0f, 50f), StrokePoint(40f, 52f), StrokePoint(90f, 54f),
+            StrokePoint(45f, 60f), StrokePoint(5f, 64f),
+            StrokePoint(50f, 70f), StrokePoint(95f, 74f),
+            StrokePoint(48f, 80f), StrokePoint(4f, 84f),
+            StrokePoint(52f, 90f), StrokePoint(92f, 94f),
+            StrokePoint(46f, 98f), StrokePoint(6f, 102f)
+        )
+        assertTrue(StrokeGeometry.isScribbleGesture(scribble))
+
+        // Normal smooth line must NOT trigger scribble erase
+        val line = (0..15).map { i -> StrokePoint(i * 15f, 50f + i * 1.2f) }
+        assertTrue(!StrokeGeometry.isScribbleGesture(line))
+    }
 }

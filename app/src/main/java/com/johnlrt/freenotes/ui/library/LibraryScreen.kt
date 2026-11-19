@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.johnlrt.freenotes.data.CoverPattern
 import com.johnlrt.freenotes.data.Folder
 import com.johnlrt.freenotes.data.Notebook
 import com.johnlrt.freenotes.data.PageOrientation
@@ -82,12 +83,18 @@ import java.util.Date
 import java.util.Locale
 
 private val CoverPresets = listOf(
+    0xFF2563EBL to 0xFF60A5FAL, // Freenotes Cobalt
     0xFF4F46E5L to 0xFF818CF8L, // Indigo
-    0xFF0D9488L to 0xFF2DD4BFL, // Teal
-    0xFFEA580CL to 0xFFFB923CL, // Amber/Orange
-    0xFFBE185DL to 0xFFF472B6L, // Rose
-    0xFF1E293BL to 0xFF475569L, // Slate
-    0xFF15803DL to 0xFF4ADE80L  // Emerald
+    0xFF0D9488L to 0xFF2DD4BFL, // Botanical Teal
+    0xFF15803DL to 0xFF4ADE80L, // Sage Emerald
+    0xFFEA580CL to 0xFFFB923CL, // Terracotta Sunset
+    0xFFBE185DL to 0xFFF472B6L, // Sakura Rose
+    0xFF7C3AEDL to 0xFFA78BFAL, // Lavender Haze
+    0xFF1E293BL to 0xFF475569L, // Obsidian Slate
+    0xFF78350FL to 0xFFD97706L, // Espresso Leather
+    0xFFB91C1CL to 0xFFF87171L, // Crimson Classic
+    0xFF0284C7L to 0xFF38BDF8L, // Blueprint Sky
+    0xFF4D7C0FL to 0xFFA3E635L  // Olive Linen
 )
 
 @Composable
@@ -383,8 +390,8 @@ fun LibraryScreen(
             folders = state.folders,
             defaultFolderId = state.selectedFolderId,
             onDismiss = { showNewNotebookDialog = false },
-            onCreate = { title, folderId, cover, accent, paperColor, template, orient, infinite ->
-                viewModel.createNotebook(title, folderId, cover, accent, paperColor, template, orient, infinite)
+            onCreate = { title, folderId, cover, accent, pattern, paperColor, template, orient, infinite ->
+                viewModel.createNotebook(title, folderId, cover, accent, paperColor, template, orient, infinite, pattern)
                 showNewNotebookDialog = false
             }
         )
@@ -623,10 +630,11 @@ private fun CreateNotebookDialog(
     folders: List<Folder>,
     defaultFolderId: String?,
     onDismiss: () -> Unit,
-    onCreate: (String, String?, Long, Long, PaperColor, PaperTemplate, PageOrientation, Boolean) -> Unit
+    onCreate: (String, String?, Long, Long, CoverPattern, PaperColor, PaperTemplate, PageOrientation, Boolean) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var selectedCover by remember { mutableStateOf(CoverPresets.first()) }
+    var coverPattern by remember { mutableStateOf(CoverPattern.CLASSIC_SPINE) }
     var paperColor by remember { mutableStateOf(PaperColor.WHITE) }
     var template by remember { mutableStateOf(PaperTemplate.RULED) }
     var orientation by remember { mutableStateOf(PageOrientation.PORTRAIT) }
@@ -636,7 +644,7 @@ private fun CreateNotebookDialog(
         onDismissRequest = onDismiss,
         title = { Text("Create New Notebook", fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -646,9 +654,9 @@ private fun CreateNotebookDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Cover Color", style = MaterialTheme.typography.labelMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CoverPresets.forEach { pair ->
+                Text("Cover Color (12 Palettes)", style = MaterialTheme.typography.labelMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(CoverPresets) { pair ->
                         val isSel = selectedCover == pair
                         Box(
                             modifier = Modifier
@@ -665,6 +673,17 @@ private fun CreateNotebookDialog(
                     }
                 }
 
+                Text("Cover Style", style = MaterialTheme.typography.labelMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(CoverPattern.entries) { pat ->
+                        FilterChip(
+                            selected = coverPattern == pat,
+                            onClick = { coverPattern = pat },
+                            label = { Text(pat.label) }
+                        )
+                    }
+                }
+
                 Text("Paper Color", style = MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PaperColor.entries.forEach { pc ->
@@ -676,7 +695,7 @@ private fun CreateNotebookDialog(
                     }
                 }
 
-                Text("Paper Template", style = MaterialTheme.typography.labelMedium)
+                Text("Paper Template (14 Templates)", style = MaterialTheme.typography.labelMedium)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(PaperTemplate.entries) { tpl ->
                         FilterChip(
@@ -715,6 +734,7 @@ private fun CreateNotebookDialog(
                         defaultFolderId,
                         selectedCover.first,
                         selectedCover.second,
+                        coverPattern,
                         paperColor,
                         template,
                         orientation,
