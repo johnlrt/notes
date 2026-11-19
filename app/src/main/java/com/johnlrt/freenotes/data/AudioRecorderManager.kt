@@ -80,7 +80,7 @@ class AudioRecorderManager(private val context: Context) {
                 prepare()
                 playbackParams = playbackParams.setSpeed(speed.coerceIn(0.5f, 2.0f))
                 setOnCompletionListener {
-                    isPlaying = false
+                    this@AudioRecorderManager.isPlaying = false
                     onComplete()
                 }
                 start()
