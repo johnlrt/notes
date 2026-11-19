@@ -1223,15 +1223,15 @@ private fun DrawScope.drawPaperTemplate(
             // Vertical lines
             var x = 0f
             while (x <= w) {
-                drawLine(gridColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1.1f)
+                drawLine(lineColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1.1f)
                 x += step
             }
             // +30 deg and -30 deg diagonals
             val dy = step * tan30
             var y = -w * tan30
             while (y <= h + w * tan30) {
-                drawLine(gridColor, Offset(0f, y), Offset(w, y + w * tan30), strokeWidth = 1.1f)
-                drawLine(gridColor, Offset(0f, y), Offset(w, y - w * tan30), strokeWidth = 1.1f)
+                drawLine(lineColor, Offset(0f, y), Offset(w, y + w * tan30), strokeWidth = 1.1f)
+                drawLine(lineColor, Offset(0f, y), Offset(w, y - w * tan30), strokeWidth = 1.1f)
                 y += dy * 2f
             }
         }
@@ -1252,7 +1252,7 @@ private fun DrawScope.drawPaperTemplate(
                         if (k == 0) hexPath.moveTo(hx, hy) else hexPath.lineTo(hx, hy)
                     }
                     hexPath.close()
-                    drawPath(hexPath, gridColor, style = ComposeStroke(width = 1.1f))
+                    drawPath(hexPath, lineColor, style = ComposeStroke(width = 1.1f))
                     cy += dy
                 }
                 cx += dx
@@ -1262,7 +1262,7 @@ private fun DrawScope.drawPaperTemplate(
         PaperTemplate.WEEKLY_PLANNER -> {
             val pad = 48f
             val headerH = 120f
-            drawLine(gridColor, Offset(pad, headerH), Offset(w - pad, headerH), strokeWidth = 2.5f)
+            drawLine(lineColor, Offset(pad, headerH), Offset(w - pad, headerH), strokeWidth = 2.5f)
             val cols = 2
             val rows = 4
             val cellW = (w - pad * 2) / cols
@@ -1272,14 +1272,14 @@ private fun DrawScope.drawPaperTemplate(
                     val left = pad + c * cellW
                     val top = headerH + 16f + r * cellH
                     drawRoundRect(
-                        color = gridColor,
+                        color = lineColor,
                         topLeft = Offset(left + 8f, top + 8f),
                         size = Size(cellW - 16f, cellH - 16f),
                         cornerRadius = CornerRadius(12f, 12f),
                         style = ComposeStroke(width = 2f)
                     )
                     drawLine(
-                        color = gridColor,
+                        color = lineColor,
                         start = Offset(left + 8f, top + 56f),
                         end = Offset(left + cellW - 8f, top + 56f),
                         strokeWidth = 1.6f
@@ -1296,11 +1296,11 @@ private fun DrawScope.drawPaperTemplate(
             val cellH = (h - topY - pad) / rows
             for (c in 0..cols) {
                 val x = pad + c * cellW
-                drawLine(gridColor, Offset(x, topY), Offset(x, topY + rows * cellH), strokeWidth = 1.6f)
+                drawLine(lineColor, Offset(x, topY), Offset(x, topY + rows * cellH), strokeWidth = 1.6f)
             }
             for (r in 0..rows) {
                 val y = topY + r * cellH
-                drawLine(gridColor, Offset(pad, y), Offset(w - pad, y), strokeWidth = 1.6f)
+                drawLine(lineColor, Offset(pad, y), Offset(w - pad, y), strokeWidth = 1.6f)
             }
         }
         PaperTemplate.TWO_COLUMN -> {
@@ -1308,8 +1308,8 @@ private fun DrawScope.drawPaperTemplate(
             drawLine(Color(0xFF94A3B8).copy(alpha = 0.6f), Offset(midX, 80f), Offset(midX, h - 60f), strokeWidth = 2.4f)
             var y = 130f
             while (y < h - 60f) {
-                drawLine(gridColor, Offset(56f, y), Offset(midX - 24f, y), strokeWidth = 1.4f)
-                drawLine(gridColor, Offset(midX + 24f, y), Offset(w - 56f, y), strokeWidth = 1.4f)
+                drawLine(lineColor, Offset(56f, y), Offset(midX - 24f, y), strokeWidth = 1.4f)
+                drawLine(lineColor, Offset(midX + 24f, y), Offset(w - 56f, y), strokeWidth = 1.4f)
                 y += 48f
             }
         }
@@ -1325,9 +1325,9 @@ private fun DrawScope.drawPaperTemplate(
                     val left = pad + c * (frameW + gap)
                     val top = pad + r * (frameH + gap)
                     val boxH = frameH * 0.72f
-                    drawRect(gridColor, Offset(left, top), Size(frameW, boxH), style = ComposeStroke(width = 2.2f))
-                    drawLine(gridColor, Offset(left, top + boxH + 28f), Offset(left + frameW, top + boxH + 28f), strokeWidth = 1.4f)
-                    drawLine(gridColor, Offset(left, top + boxH + 62f), Offset(left + frameW, top + boxH + 62f), strokeWidth = 1.4f)
+                    drawRect(lineColor, Offset(left, top), Size(frameW, boxH), style = ComposeStroke(width = 2.2f))
+                    drawLine(lineColor, Offset(left, top + boxH + 28f), Offset(left + frameW, top + boxH + 28f), strokeWidth = 1.4f)
+                    drawLine(lineColor, Offset(left, top + boxH + 62f), Offset(left + frameW, top + boxH + 62f), strokeWidth = 1.4f)
                 }
             }
         }
