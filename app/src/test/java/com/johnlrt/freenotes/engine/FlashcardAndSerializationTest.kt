@@ -81,7 +81,7 @@ class FlashcardAndSerializationTest {
         assertEquals(2, decoded.pages.size)
         assertEquals(true, decoded.pages[0].strokes[0].borderDashed)
         assertEquals(true, decoded.pages[0].strokes[0].isFilledShape)
-        assertEquals(0x332563EB, decoded.pages[0].strokes[0].fillColorArgb)
+        assertEquals(0x332563EBL, decoded.pages[0].strokes[0].fillColorArgb)
         assertEquals("Key", decoded.pages[0].stickers[0].label)
         assertEquals("💡", decoded.pages[0].stickers[0].emoji)
         assertEquals(1, decoded.pages[0].hyperlinks[0].targetPageIndex)
