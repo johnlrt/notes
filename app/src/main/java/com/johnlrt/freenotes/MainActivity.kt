@@ -2,8 +2,10 @@ package com.johnlrt.freenotes
 
 import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.view.Display
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -62,6 +64,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        enableHighRefreshRate()
 
         setContent {
             FreeNotesTheme {
@@ -97,6 +100,44 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        enableHighRefreshRate()
+    }
+
+    /**
+     * Locks the window to the tablet's highest supported refresh rate (120Hz / 144Hz / 90Hz)
+     * at native resolution and enables Android 14+ touch frame-rate boost for zero-lag inking.
+     */
+    @Suppress("DEPRECATION")
+    private fun enableHighRefreshRate() {
+        val currentDisplay: Display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display ?: windowManager.defaultDisplay
+        } else {
+            windowManager.defaultDisplay
+        } ?: return
+
+        val currentMode = currentDisplay.mode
+        val bestMode = currentDisplay.supportedModes
+            .filter {
+                it.physicalWidth == currentMode.physicalWidth &&
+                    it.physicalHeight == currentMode.physicalHeight
+            }
+            .maxByOrNull { it.refreshRate }
+            ?: currentMode
+
+        val params = window.attributes
+        if (params.preferredDisplayModeId != bestMode.modeId || params.preferredRefreshRate != bestMode.refreshRate) {
+            params.preferredDisplayModeId = bestMode.modeId
+            params.preferredRefreshRate = bestMode.refreshRate
+            window.attributes = params
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            window.frameRateBoostOnTouchEnabled = true
         }
     }
 

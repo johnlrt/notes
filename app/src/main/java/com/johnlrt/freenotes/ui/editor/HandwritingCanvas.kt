@@ -11,8 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,8 +36,10 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.input.motionprediction.MotionEventPredictor
 import com.johnlrt.freenotes.data.HighlighterStyle
 import com.johnlrt.freenotes.data.NotePage
 import com.johnlrt.freenotes.data.PaperTemplate
@@ -174,18 +174,21 @@ fun HandwritingCanvas(
     var rulerCy by remember { mutableFloatStateOf(pageH * 0.35f) }
     var rulerAngleDeg by remember { mutableFloatStateOf(0f) }
 
-    // Live stroke state
-    val livePoints = remember { mutableStateListOf<StrokePoint>() }
-    val predictedPoints = remember { mutableStateListOf<StrokePoint>() }
-    val laserTrail = remember { mutableStateListOf<StrokePoint>() }
+    // Zero-recomposition live stroke buffers + hardware front-buffer controller
+    val hostView = LocalView.current
+    val motionPredictor = remember(hostView) { MotionEventPredictor.newInstance(hostView) }
+    val lowLatencyController = remember { LowLatencyInkController() }
+
+    val livePoints = remember { ArrayList<StrokePoint>(256) }
+    val laserTrail = remember { ArrayList<StrokePoint>(40) }
     var activeDrawingTool by remember { mutableStateOf<ToolType?>(null) }
-    var drawingTargetPageIndex by remember { mutableIntStateOf(currentPageIndex) }
-    var strokeStartTimeMs by remember { mutableStateOf(0L) }
-    var eraserHasHitInGesture by remember { mutableStateOf(false) }
-    var isDraggingLassoSelection by remember { mutableStateOf(false) }
-    var lastDragPageX by remember { mutableFloatStateOf(0f) }
-    var lastDragPageY by remember { mutableFloatStateOf(0f) }
-    var dragUndoRecorded by remember { mutableStateOf(false) }
+    var drawingTargetPageIndex = remember { currentPageIndex }
+    var strokeStartTimeMs = remember { 0L }
+    var eraserHasHitInGesture = remember { false }
+    var isDraggingLassoSelection = remember { false }
+    var lastDragPageX = remember { 0f }
+    var lastDragPageY = remember { 0f }
+    var dragUndoRecorded = remember { false }
 
     var isPanZooming by remember { mutableStateOf(false) }
     var prevPinchDist by remember { mutableFloatStateOf(0f) }
@@ -193,7 +196,7 @@ fun HandwritingCanvas(
     var prevMidY by remember { mutableFloatStateOf(0f) }
 
     val oneEuro = remember { OneEuroFilter2D() }
-    val predictor = remember { StylusPredictor() }
+    val predictor = remember { StylusPredictor(maxPredictMs = 14f, damping = 0.72f) }
 
     LaunchedEffect(toolConfig.stability) {
         oneEuro.setStability(toolConfig.stability)
@@ -214,6 +217,33 @@ fun HandwritingCanvas(
         }
         val lastIdx = pages.lastIndex
         return lastIdx to (wy - pageTops[lastIdx])
+    }
+
+    fun pushFrontBufferFrame(tool: ToolType, pageTop: Float, predPts: List<StrokePoint>) {
+        val ptsCopy = if (tool == ToolType.LASER) ArrayList(laserTrail) else ArrayList(livePoints)
+        lowLatencyController.renderWetStroke(
+            WetStrokeSnapshot(
+                toolType = tool,
+                points = ptsCopy,
+                predictedPoints = predPts,
+                colorArgb = if (tool == ToolType.HIGHLIGHTER) toolConfig.highlighterColorArgb else toolConfig.penColorArgb,
+                baseWidth = if (tool == ToolType.HIGHLIGHTER) toolConfig.highlighterWidth else toolConfig.penWidth,
+                opacity = if (tool == ToolType.HIGHLIGHTER) toolConfig.highlighterOpacity else toolConfig.penOpacity,
+                pressureSensitivity = toolConfig.pressureSensitivity,
+                nibAngleDeg = toolConfig.artNibAngleDeg,
+                highlighterStyle = toolConfig.highlighterStyle,
+                straightLine = toolConfig.highlighterStraightLine,
+                shapeFilled = toolConfig.shapeFilled,
+                shapeFillColorArgb = toolConfig.penColorArgb,
+                shapeDashed = toolConfig.shapeBorderDashed,
+                tapeThickness = toolConfig.tapeThickness,
+                tapeColorArgb = toolConfig.tapeColorArgb,
+                scale = scale,
+                offsetX = offsetX,
+                offsetY = offsetY,
+                pageTopY = pageTop
+            )
+        )
     }
 
     Box(
@@ -238,9 +268,12 @@ fun HandwritingCanvas(
                     primaryToolType == MotionEvent.TOOL_TYPE_ERASER
 
                 if (pointerCount >= 2 || (stylusOnlyMode && !isStylus)) {
-                    livePoints.clear()
-                    predictedPoints.clear()
-                    activeDrawingTool = null
+                    if (activeDrawingTool != null) {
+                        livePoints.clear()
+                        laserTrail.clear()
+                        activeDrawingTool = null
+                        lowLatencyController.clearImmediate()
+                    }
                     handlePanZoomEvent(
                         event, zoomLocked, isPanZooming, { isPanZooming = it },
                         prevPinchDist, { prevPinchDist = it }, prevMidX, prevMidY,
@@ -275,6 +308,9 @@ fun HandwritingCanvas(
 
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        // Disable VSync input batching so 120Hz/240Hz stylus packets arrive with ~0ms queue lag
+                        hostView.requestUnbufferedDispatch(event)
+                        motionPredictor.record(event)
                         drawingTargetPageIndex = targetIdx
 
                         // 1. Check Hyperlink tap
@@ -336,7 +372,6 @@ fun HandwritingCanvas(
                         oneEuro.reset()
                         predictor.reset()
                         livePoints.clear()
-                        predictedPoints.clear()
 
                         if (effectiveTool == ToolType.ERASER) {
                             onEraseAt(targetIdx, wx, localY, true)
@@ -379,6 +414,8 @@ fun HandwritingCanvas(
                             return@pointerInteropFilter true
                         }
 
+                        motionPredictor.record(event)
+
                         for (h in 0 until event.historySize) {
                             val (hwx, hwy) = screenToWorld(event.getHistoricalX(h), event.getHistoricalY(h))
                             val hLocalY = hwy - pageTop
@@ -407,13 +444,52 @@ fun HandwritingCanvas(
                         if (tool == ToolType.LASER) {
                             laserTrail.add(pt)
                             if (laserTrail.size > 36) laserTrail.removeAt(0)
+                            pushFrontBufferFrame(tool, pageTop, emptyList())
                         } else {
                             livePoints.add(pt)
                             predictor.record(pt)
-                            predictedPoints.clear()
-                            if (tool != ToolType.TAPE && tool != ToolType.LASSO) {
-                                predictedPoints.addAll(predictor.predict())
+
+                            // Combine OS hardware Kalman predictor with StylusPredictor fallback
+                            val predPts = if (tool != ToolType.TAPE && tool != ToolType.LASSO) {
+                                val osPred = motionPredictor.predict()
+                                if (osPred != null) {
+                                    val list = ArrayList<StrokePoint>(osPred.historySize + 1)
+                                    for (hi in 0 until osPred.historySize) {
+                                        val (pwx, pwy) = screenToWorld(osPred.getHistoricalX(hi), osPred.getHistoricalY(hi))
+                                        val plY = pwy - pageTop
+                                        val (spx, spy) = if (showRuler) {
+                                            StrokeGeometry.snapPointToRuler(pwx, plY, rulerCx, rulerCy, rulerAngleDeg)
+                                        } else pwx to plY
+                                        list.add(
+                                            StrokePoint(
+                                                spx, spy,
+                                                osPred.getHistoricalPressure(hi).coerceIn(0.05f, 1f),
+                                                (osPred.getHistoricalEventTime(hi) - strokeStartTimeMs).coerceAtLeast(pt.timeOffsetMs)
+                                            )
+                                        )
+                                    }
+                                    val (pwx, pwy) = screenToWorld(osPred.x, osPred.y)
+                                    val plY = pwy - pageTop
+                                    val (spx, spy) = if (showRuler) {
+                                        StrokeGeometry.snapPointToRuler(pwx, plY, rulerCx, rulerCy, rulerAngleDeg)
+                                    } else pwx to plY
+                                    list.add(
+                                        StrokePoint(
+                                            spx, spy,
+                                            osPred.pressure.coerceIn(0.05f, 1f),
+                                            (osPred.eventTime - strokeStartTimeMs).coerceAtLeast(pt.timeOffsetMs)
+                                        )
+                                    )
+                                    osPred.recycle()
+                                    list
+                                } else {
+                                    predictor.predict()
+                                }
+                            } else {
+                                emptyList()
                             }
+
+                            pushFrontBufferFrame(tool, pageTop, predPts)
                         }
                     }
 
@@ -425,13 +501,17 @@ fun HandwritingCanvas(
                         val tool = activeDrawingTool
                         if (tool == ToolType.LASSO && livePoints.size >= 3) {
                             onSelectLasso(livePoints.toList())
+                            lowLatencyController.clearImmediate()
                         } else if (tool == ToolType.LASER) {
                             laserTrail.clear()
+                            lowLatencyController.clearImmediate()
                         } else if (tool != null && tool != ToolType.ERASER && livePoints.size >= 2) {
                             onCommitStroke(drawingTargetPageIndex, livePoints.toList(), tool)
+                            lowLatencyController.clearAfterCommit()
+                        } else {
+                            lowLatencyController.clearImmediate()
                         }
                         livePoints.clear()
-                        predictedPoints.clear()
                         activeDrawingTool = null
                     }
                 }
@@ -507,62 +587,7 @@ fun HandwritingCanvas(
                             }
                         }
 
-                        // 7. Live stroke on this page
-                        val curTool = activeDrawingTool
-                        if (pIdx == drawingTargetPageIndex && curTool != null && livePoints.size >= 2) {
-                            when (curTool) {
-                                ToolType.LASSO -> {
-                                    val path = Path().apply {
-                                        moveTo(livePoints.first().x, livePoints.first().y)
-                                        for (i in 1 until livePoints.size) lineTo(livePoints[i].x, livePoints[i].y)
-                                    }
-                                    drawPath(
-                                        path = path,
-                                        color = Color(0xFF2563EB),
-                                        style = ComposeStroke(
-                                            width = 2.5f / scale.coerceAtLeast(0.5f),
-                                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
-                                        )
-                                    )
-                                }
-                                ToolType.TAPE -> {
-                                    drawTapeItem(
-                                        TapeItem(
-                                            startX = livePoints.first().x,
-                                            startY = livePoints.first().y,
-                                            endX = livePoints.last().x,
-                                            endY = livePoints.last().y,
-                                            thickness = toolConfig.tapeThickness,
-                                            colorArgb = toolConfig.tapeColorArgb,
-                                            isRevealed = false
-                                        )
-                                    )
-                                }
-                                else -> {
-                                    val previewPoints = if (curTool == ToolType.HIGHLIGHTER && toolConfig.highlighterStraightLine) {
-                                        listOf(livePoints.first(), livePoints.last())
-                                    } else {
-                                        livePoints + predictedPoints
-                                    }
-                                    val liveStroke = Stroke(
-                                        toolType = curTool,
-                                        colorArgb = if (curTool == ToolType.HIGHLIGHTER) toolConfig.highlighterColorArgb else toolConfig.penColorArgb,
-                                        baseWidth = if (curTool == ToolType.HIGHLIGHTER) toolConfig.highlighterWidth else toolConfig.penWidth,
-                                        opacity = if (curTool == ToolType.HIGHLIGHTER) toolConfig.highlighterOpacity else toolConfig.penOpacity,
-                                        pressureSensitivity = toolConfig.pressureSensitivity,
-                                        nibAngleDeg = toolConfig.artNibAngleDeg,
-                                        highlighterStyle = toolConfig.highlighterStyle,
-                                        isFilledShape = curTool == ToolType.SHAPE && toolConfig.shapeFilled,
-                                        fillColorArgb = if (curTool == ToolType.SHAPE && toolConfig.shapeFilled) toolConfig.penColorArgb else null,
-                                        borderDashed = curTool == ToolType.SHAPE && toolConfig.shapeBorderDashed,
-                                        points = previewPoints
-                                    )
-                                    drawStrokeOnCanvas(liveStroke, isSelected = false)
-                                }
-                            }
-                        }
-
-                        // 8. Stickers
+                        // 7. Stickers (live wet ink & laser are rendered in 120Hz LowLatencyInkOverlay front buffer)
                         val stickerTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                             textSize = 26f
                             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -708,22 +733,17 @@ fun HandwritingCanvas(
                             }
                         }
 
-                        // 15. Fading Laser Pointer
-                        if (pIdx == drawingTargetPageIndex && laserTrail.size >= 2) {
-                            for (i in 1 until laserTrail.size) {
-                                val frac = i.toFloat() / laserTrail.size
-                                drawLine(
-                                    color = Color(0xFFEF4444).copy(alpha = frac * 0.9f),
-                                    start = Offset(laserTrail[i - 1].x, laserTrail[i - 1].y),
-                                    end = Offset(laserTrail[i].x, laserTrail[i].y),
-                                    strokeWidth = 3f + frac * 7f,
-                                    cap = StrokeCap.Round
-                                )
-                            }
-                        }
                     }
                 }
             }
+        }
+
+        // Hardware single-buffered GPU front-buffer ink layer (120Hz+, ~2-5ms ink-under-nib latency)
+        if (!readOnly) {
+            LowLatencyInkOverlay(
+                controller = lowLatencyController,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }

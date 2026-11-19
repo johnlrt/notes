@@ -77,6 +77,7 @@ class OneEuroFilter2D(
 ) {
     private val filterX = OneEuroFilter1D(minCutoff = minCutoff, beta = beta)
     private val filterY = OneEuroFilter1D(minCutoff = minCutoff, beta = beta)
+    private var bypass: Boolean = false
 
     fun reset() {
         filterX.reset()
@@ -85,12 +86,13 @@ class OneEuroFilter2D(
 
     /**
      * Maps a UI stability slider [0f..1f] to One-Euro cutoff parameters.
-     * - 0f: raw / minimal smoothing (minCutoff = 32f)
+     * - <= 0.02f: zero-lag raw pass-through (0ms filter phase delay)
      * - 0.5f: Freenotes default (minCutoff = 16f, beta = 0.01f)
      * - 1.0f: strong calligraphic stabilization (minCutoff = 3.5f, beta = 0.004f)
      */
     fun setStability(stability: Float) {
         val s = stability.coerceIn(0f, 1f)
+        bypass = s <= 0.02f
         val cutoff = 32f * (1f - s) + 3.5f * s
         val beta = 0.018f * (1f - s) + 0.004f * s
         filterX.configure(cutoff, beta)
@@ -98,6 +100,7 @@ class OneEuroFilter2D(
     }
 
     fun filter(x: Float, y: Float, timestampMs: Long): Pair<Float, Float> {
+        if (bypass) return x to y
         val tSec = timestampMs / 1000.0
         return filterX.filter(x, tSec) to filterY.filter(y, tSec)
     }

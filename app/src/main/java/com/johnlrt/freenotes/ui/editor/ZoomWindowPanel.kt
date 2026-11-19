@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -126,6 +127,7 @@ fun ZoomWindowPanel(
             }
 
             // Magnified Writing Surface
+            val zoomHostView = LocalView.current
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -139,6 +141,7 @@ fun ZoomWindowPanel(
 
                         when (event.actionMasked) {
                             MotionEvent.ACTION_DOWN -> {
+                                zoomHostView.requestUnbufferedDispatch(event)
                                 startTimeMs = event.eventTime
                                 oneEuro.reset()
                                 livePoints.clear()

@@ -8,6 +8,7 @@ composeBom = "2024.12.01"
 kotlinxSerialization = "1.7.3"
 kotlinxCoroutines = "1.9.0"
 inputMotionPrediction = "1.0.0-beta05"
+graphicsCore = "1.0.4"
 mlkitDigitalInk = "18.1.0"
 junit = "4.13.2"
 
@@ -24,6 +25,7 @@ androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-input-motionprediction = { group = "androidx.input", name = "input-motionprediction", version.ref = "inputMotionPrediction" }
+androidx-graphics-core = { group = "androidx.graphics", name = "graphics-core", version.ref = "graphicsCore" }
 mlkit-digital-ink = { group = "com.google.mlkit", name = "digital-ink-recognition", version.ref = "mlkitDigitalInk" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }

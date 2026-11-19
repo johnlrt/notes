@@ -69,7 +69,7 @@ data class ToolConfig(
     val tapeThickness: Float = 38f,
     val penOpacity: Float = 1f,
     val highlighterOpacity: Float = 0.35f,
-    val stability: Float = 0.5f,
+    val stability: Float = 0.15f,
     val pressureSensitivity: Float = 0.72f,
     val artNibAngleDeg: Float = 35f,
     val highlighterStyle: HighlighterStyle = HighlighterStyle.SOLID,
